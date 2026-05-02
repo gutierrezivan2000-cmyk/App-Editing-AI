@@ -1,3 +1,13 @@
+CREATE TABLE IF NOT EXISTS users (
+  id        TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+  email     TEXT UNIQUE NOT NULL,
+  password  TEXT NOT NULL,
+  name      TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
 CREATE TABLE IF NOT EXISTS clientes (
   id          TEXT PRIMARY KEY,
   nombre      TEXT NOT NULL,

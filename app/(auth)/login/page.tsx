@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 
@@ -18,13 +19,13 @@ export default function LoginPage() {
 
     const form = new FormData(e.currentTarget);
     const result = await signIn("credentials", {
-      username: form.get("username") as string,
+      email: form.get("email") as string,
       password: form.get("password") as string,
       redirect: false,
     });
 
     if (result?.error) {
-      setError("Usuario o contraseña incorrectos");
+      setError("Email o contraseña incorrectos");
       setLoading(false);
     } else {
       router.push("/dashboard");
@@ -41,12 +42,12 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4 rounded-xl bg-white p-8 shadow-sm border border-gray-200">
           <div className="space-y-1">
-            <Label htmlFor="username">Usuario</Label>
+            <Label htmlFor="email">Email</Label>
             <Input
-              id="username"
-              name="username"
-              type="text"
-              autoComplete="username"
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
               required
               autoFocus
             />
@@ -68,6 +69,13 @@ export default function LoginPage() {
             Entrar
           </Button>
         </form>
+
+        <div className="text-center text-sm text-gray-600">
+          ¿No tienes cuenta?{" "}
+          <Link href="/signup" className="font-medium text-indigo-600 hover:text-indigo-500">
+            Regístrate aquí
+          </Link>
+        </div>
       </div>
     </div>
   );

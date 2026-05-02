@@ -5,9 +5,9 @@ import {
   uploadToVercelBlob,
 } from "@remotion/vercel";
 import path from "node:path";
-import { RenderInputProps } from "@/types";
+import type { RenderInputProps } from "@/types";
 
-const BUNDLE_PATH = path.join(process.cwd(), "remotion-bundle");
+const BUNDLE_DIR = path.join(process.cwd(), "remotion-bundle");
 
 export async function renderizarVideoFinal(
   projectId: string,
@@ -15,14 +15,14 @@ export async function renderizarVideoFinal(
 ): Promise<{ url: string; size: number }> {
   const sandbox = await createSandbox();
   try {
-    await addBundleToSandbox({ sandbox, bundlePath: BUNDLE_PATH });
+    await addBundleToSandbox({ sandbox, bundleDir: BUNDLE_DIR });
 
     await renderMediaOnVercel({
       sandbox,
-      composition: "VideoBase",
-      inputProps,
+      compositionId: "VideoBase",
+      inputProps: inputProps as unknown as Record<string, unknown>,
       codec: "h264",
-      outputLocation: "/tmp/output.mp4",
+      outputFile: "/tmp/output.mp4",
     });
 
     return await uploadToVercelBlob({
@@ -34,6 +34,6 @@ export async function renderizarVideoFinal(
       access: "public",
     });
   } finally {
-    await sandbox.shutdown();
+    await sandbox.stop();
   }
 }

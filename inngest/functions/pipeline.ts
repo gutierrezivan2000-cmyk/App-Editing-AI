@@ -37,7 +37,7 @@ export const procesarVideo = inngest.createFunction(
           });
           return await detectarSilencios(sandbox, "/tmp/input.mp4", cliente.silencio);
         } finally {
-          await sandbox.shutdown();
+          await sandbox.stop();
         }
       });
 
@@ -72,7 +72,7 @@ export const procesarVideo = inngest.createFunction(
             `intermedio/${projectId}.mp4`
           );
         } finally {
-          await sandbox.shutdown();
+          await sandbox.stop();
         }
       });
 

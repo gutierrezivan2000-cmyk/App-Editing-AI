@@ -1,14 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: [
-      "@vercel/sandbox",
-      "@remotion/vercel",
-      "@remotion/renderer",
-      "@remotion/bundler",
-    ],
-  },
+  serverExternalPackages: [
+    "@vercel/sandbox",
+    "@remotion/vercel",
+    "@remotion/renderer",
+    "@remotion/bundler",
+  ],
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = config.externals ?? [];

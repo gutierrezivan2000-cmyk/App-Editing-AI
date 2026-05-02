@@ -1,41 +1,45 @@
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
-import { uploadToBlob } from "@/lib/blob";
+import { auth } from "@/auth";
 
-export async function POST(req: Request) {
+export async function POST(request: Request): Promise<NextResponse> {
+  const body = (await request.json()) as HandleUploadBody;
+
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
+    const jsonResponse = await handleUpload({
+      body,
+      request,
+      onBeforeGenerateToken: async (pathname) => {
+        const session = await auth();
+        if (!session?.user) {
+          throw new Error("No autorizado");
+        }
+        return {
+          allowedContentTypes: [
+            "video/mp4",
+            "video/quicktime",
+            "video/webm",
+            "video/x-matroska",
+            "video/mpeg",
+            "video/avi",
+            "video/x-msvideo",
+          ],
+          maximumSizeInBytes: 500 * 1024 * 1024,
+          tokenPayload: JSON.stringify({ userId: session.user.id, pathname }),
+          addRandomSuffix: true,
+        };
+      },
+      onUploadCompleted: async ({ blob }) => {
+        console.log("[upload] completed", blob.url);
+      },
+    });
 
-    if (!file) {
-      return NextResponse.json({ error: "No se recibió archivo" }, { status: 400 });
-    }
-
-    if (!file.type.startsWith("video/")) {
-      return NextResponse.json(
-        { error: "Solo se aceptan archivos de video" },
-        { status: 400 }
-      );
-    }
-
-    const maxSize = 500 * 1024 * 1024; // 500 MB
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { error: "El archivo excede el tamaño máximo de 500 MB" },
-        { status: 400 }
-      );
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const ext = file.name.split(".").pop() ?? "mp4";
-    const key = `footage/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-
-    const url = await uploadToBlob(key, buffer, file.type);
-    return NextResponse.json({ url }, { status: 201 });
+    return NextResponse.json(jsonResponse);
   } catch (error) {
-    console.error("[upload/route]", error);
+    console.error("[upload]", error);
     return NextResponse.json(
-      { error: "Error al subir el archivo" },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : "Error al subir" },
+      { status: 400 }
     );
   }
 }

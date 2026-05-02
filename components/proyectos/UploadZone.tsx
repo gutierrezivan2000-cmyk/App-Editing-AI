@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
+import { upload } from "@vercel/blob/client";
 
 interface UploadZoneProps {
   onUploaded: (url: string) => void;
@@ -12,24 +13,38 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const upload = useCallback(
+  const uploadFile = useCallback(
     async (file: File) => {
       setError(null);
+
+      if (!file.type.startsWith("video/")) {
+        setError("Solo se aceptan archivos de video");
+        return;
+      }
+
+      const maxSize = 500 * 1024 * 1024;
+      if (file.size > maxSize) {
+        setError("El archivo excede el tamaño máximo de 500 MB");
+        return;
+      }
+
       setUploading(true);
       setProgress("Subiendo...");
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        const res = await fetch("/api/upload", { method: "POST", body: formData });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error ?? "Error al subir");
-        }
-        const { url } = await res.json();
+        const ext = file.name.split(".").pop() ?? "mp4";
+        const pathname = `footage/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+
+        const blob = await upload(pathname, file, {
+          access: "public",
+          handleUploadUrl: "/api/upload",
+          contentType: file.type,
+        });
+
         setProgress("¡Listo!");
-        onUploaded(url);
+        onUploaded(blob.url);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error desconocido");
+        setProgress(null);
       } finally {
         setUploading(false);
       }
@@ -42,14 +57,14 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       e.preventDefault();
       setDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file) upload(file);
+      if (file) uploadFile(file);
     },
-    [upload]
+    [uploadFile]
   );
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) upload(file);
+    if (file) uploadFile(file);
   };
 
   return (

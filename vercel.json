@@ -1,0 +1,28 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npx remotion bundle remotion/index.ts ./remotion-bundle && next build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "functions": {
+    "app/api/inngest/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/pipeline/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/upload/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/webhooks/clickup/route.ts": {
+      "maxDuration": 15
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
+  ]
+}

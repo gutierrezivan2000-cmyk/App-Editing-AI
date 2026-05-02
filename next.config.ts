@@ -2,14 +2,33 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ["@vercel/sandbox"],
+    serverComponentsExternalPackages: [
+      "@vercel/sandbox",
+      "@remotion/vercel",
+      "@remotion/renderer",
+      "@remotion/bundler",
+    ],
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = config.externals ?? [];
-      config.externals.push("@vercel/sandbox");
+      config.externals.push(
+        "@vercel/sandbox",
+        "@remotion/vercel",
+        "@remotion/renderer",
+        "@remotion/bundler"
+      );
     }
+    // Remotion bundle directory no debe ser procesado por webpack
+    config.resolve = config.resolve ?? {};
+    config.resolve.alias = {
+      ...(config.resolve.alias ?? {}),
+    };
     return config;
+  },
+  // Excluir remotion-bundle de Next.js
+  outputFileTracingExcludes: {
+    "*": ["./remotion-bundle/**"],
   },
 };
 

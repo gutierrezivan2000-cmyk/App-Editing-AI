@@ -10,7 +10,6 @@ interface UploadZoneProps {
 export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [percentage, setPercentage] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,7 +17,6 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
     async (file: File) => {
       setError(null);
       setDone(false);
-      setPercentage(0);
 
       if (!file.type.startsWith("video/")) {
         setError("Solo se aceptan archivos de video");
@@ -35,7 +33,6 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
         const blob = await upload(pathname, file, {
           access: "public",
           handleUploadUrl: "/api/upload",
-          onUploadProgress: ({ percentage: pct }) => setPercentage(Math.round(pct)),
         });
         setDone(true);
         onUploaded(blob.url);
@@ -86,15 +83,11 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
 
       {uploading && (
         <div className="mt-4 w-full max-w-xs">
-          <div className="mb-1 flex justify-between text-xs text-gray-500">
-            <span>Subiendo...</span>
-            <span>{percentage}%</span>
-          </div>
-          <div className="h-2 w-full rounded-full bg-gray-200">
-            <div
-              className="h-2 rounded-full bg-indigo-500 transition-all"
-              style={{ width: `${percentage}%` }}
-            />
+          <p className="text-sm text-indigo-600 animate-pulse">
+            Subiendo video... (puede tardar varios minutos)
+          </p>
+          <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-gray-200">
+            <div className="h-1 w-1/3 animate-pulse bg-indigo-500" />
           </div>
         </div>
       )}

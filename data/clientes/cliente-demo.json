@@ -1,0 +1,27 @@
+{
+  "id": "cliente-demo",
+  "nombre": "Cliente Demo",
+  "redes": ["instagram_reels", "tiktok"],
+  "subtitulos": {
+    "fuente_principal": "Montserrat",
+    "fuente_enfasis": "Bebas Neue",
+    "tamano_base": 48,
+    "tamano_enfasis": 80,
+    "color_base": "#FFFFFF",
+    "color_enfasis": "#FF6B35",
+    "posicion": "bottom-center",
+    "animacion": "pop-scale",
+    "palabras_por_linea": 4,
+    "sombra": true
+  },
+  "silencio": {
+    "umbral_db": -35,
+    "duracion_minima_seg": 0.4,
+    "margen_seg": 0.15
+  },
+  "exportacion": {
+    "formatos": ["9:16", "1:1"],
+    "fps": 30,
+    "bitrate": "8M"
+  }
+}

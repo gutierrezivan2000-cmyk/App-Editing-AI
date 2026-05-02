@@ -1,0 +1,42 @@
+{
+  "name": "video-ia-agency",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "remotion bundle remotion/index.ts ./remotion-bundle && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "remotion:bundle": "remotion bundle remotion/index.ts ./remotion-bundle"
+  },
+  "dependencies": {
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.0",
+    "@remotion/vercel": "^4.0.0",
+    "@remotion/player": "^4.0.0",
+    "@remotion/google-fonts": "^4.0.0",
+    "@remotion/cli": "^4.0.0",
+    "@vercel/sandbox": "latest",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "openai": "^4.50.0",
+    "@vercel/blob": "^0.22.0",
+    "@vercel/postgres": "^0.8.0",
+    "inngest": "^3.0.0",
+    "@upstash/ratelimit": "latest",
+    "@upstash/redis": "latest",
+    "next-auth": "^5.0.0-beta",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "postcss": "^8.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.0.0"
+  }
+}

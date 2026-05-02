@@ -5,10 +5,12 @@ import { ratelimit } from "@/lib/ratelimit";
 
 export async function POST(req: Request) {
   try {
-    const ip = req.headers.get("x-forwarded-for") ?? "anon";
-    const { success } = await ratelimit.limit(`pipeline:${ip}`);
-    if (!success) {
-      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    if (ratelimit) {
+      const ip = req.headers.get("x-forwarded-for") ?? "anon";
+      const { success } = await ratelimit.limit(`pipeline:${ip}`);
+      if (!success) {
+        return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+      }
     }
 
     const { clienteId, footageUrl, brief, nombre, clickupTaskId } =

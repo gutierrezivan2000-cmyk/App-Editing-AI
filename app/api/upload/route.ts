@@ -1,6 +1,5 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 
 export async function POST(request: Request): Promise<NextResponse> {
   const body = (await request.json()) as HandleUploadBody;
@@ -9,26 +8,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     const jsonResponse = await handleUpload({
       body,
       request,
-      onBeforeGenerateToken: async (pathname) => {
-        const session = await auth();
-        if (!session?.user) {
-          throw new Error("No autorizado");
-        }
-        return {
-          allowedContentTypes: [
-            "video/mp4",
-            "video/quicktime",
-            "video/webm",
-            "video/x-matroska",
-            "video/mpeg",
-            "video/avi",
-            "video/x-msvideo",
-          ],
-          maximumSizeInBytes: 500 * 1024 * 1024,
-          tokenPayload: JSON.stringify({ userId: session.user.id, pathname }),
-          addRandomSuffix: true,
-        };
-      },
+      onBeforeGenerateToken: async () => ({
+        maximumSizeInBytes: 500 * 1024 * 1024,
+        addRandomSuffix: true,
+      }),
       onUploadCompleted: async ({ blob }) => {
         console.log("[upload] completed", blob.url);
       },

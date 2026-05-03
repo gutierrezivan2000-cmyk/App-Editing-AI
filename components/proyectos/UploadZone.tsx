@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useCallback, useRef, useState } from "react";
-import { upload } from "@vercel/blob/client";
+import React, { useCallback, useState } from "react";
 
 interface UploadZoneProps {
   onUploaded: (url: string) => void;
@@ -13,7 +12,6 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -31,39 +29,86 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       }
 
       setUploading(true);
-
-      // Simulate upload progress (real progress not available in this SDK version)
-      let simPct = 0;
-      timerRef.current = setInterval(() => {
-        // Slow down as it approaches 98% to give the upload time to finish
-        const step = simPct < 60 ? Math.random() * 5 : simPct < 85 ? Math.random() * 2 : 0.3;
-        simPct = Math.min(simPct + step, 98);
-        setProgress(Math.round(simPct));
-      }, 600);
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000);
-
       try {
         const pathname = `footage/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 
-        const blob = await upload(pathname, file, {
-          access: "public",
-          handleUploadUrl: "/api/upload",
+        // Step 1: get a client upload token from our server
+        const tokenRes = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            type: "blob.generate-client-token",
+            payload: {
+              pathname,
+              callbackUrl: `${window.location.origin}/api/upload`,
+              clientPayload: null,
+              multipart: false,
+            },
+          }),
         });
-        clearTimeout(timeoutId);
 
-        clearInterval(timerRef.current!);
+        if (!tokenRes.ok) {
+          const body = await tokenRes.json().catch(() => ({}));
+          throw new Error(
+            (body as { error?: string }).error ||
+              `Error al preparar la subida (${tokenRes.status})`
+          );
+        }
+
+        const { clientToken } = (await tokenRes.json()) as { clientToken?: string };
+        if (!clientToken) {
+          throw new Error(
+            "El servidor no devolvió un token. Verifica que BLOB_READ_WRITE_TOKEN esté configurado."
+          );
+        }
+
+        // Step 2: upload directly to Vercel Blob CDN via XHR for real progress
+        const blobUrl = await new Promise<string>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          const encodedPathname = encodeURIComponent(pathname);
+          xhr.open("PUT", `https://blob.vercel-storage.com/${encodedPathname}`);
+          xhr.setRequestHeader("x-api-version", "7");
+          xhr.setRequestHeader("authorization", `Bearer ${clientToken}`);
+          xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
+
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              setProgress(Math.round((event.loaded / event.total) * 100));
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const data = JSON.parse(xhr.responseText) as { url?: string };
+                if (data.url) resolve(data.url);
+                else reject(new Error("El servidor no devolvió la URL del video."));
+              } catch {
+                reject(new Error("Respuesta inválida del servidor de archivos."));
+              }
+            } else {
+              let msg = `Error al subir el archivo (${xhr.status})`;
+              try {
+                const data = JSON.parse(xhr.responseText) as { error?: { message?: string } };
+                if (data.error?.message) msg = data.error.message;
+              } catch { /* ignore */ }
+              reject(new Error(msg));
+            }
+          };
+
+          xhr.onerror = () => reject(new Error("Error de red al subir el video. Revisa tu conexión e inténtalo de nuevo."));
+          xhr.ontimeout = () => reject(new Error("La subida tardó demasiado. Intenta con un archivo más pequeño."));
+          xhr.timeout = 15 * 60 * 1000; // 15 min
+
+          xhr.send(file);
+        });
+
         setProgress(100);
         setDone(true);
-        onUploaded(blob.url);
+        onUploaded(blobUrl);
       } catch (e) {
-        clearTimeout(timeoutId);
-        clearInterval(timerRef.current!);
-        const msg = e instanceof Error ? e.message : "Error desconocido al subir el video";
-        setError(msg.includes("abort") ? "La subida tardó demasiado. Intenta con un archivo más pequeño." : msg);
+        setError(e instanceof Error ? e.message : "Error desconocido");
       } finally {
-        timerRef.current = null;
         setUploading(false);
       }
     },
@@ -82,17 +127,12 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
 
   return (
     <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragging(true);
-      }}
+      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
       className={[
         "flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 sm:p-12 text-center transition-colors",
-        dragging
-          ? "border-indigo-500 bg-indigo-50"
-          : "border-gray-300 hover:border-gray-400",
+        dragging ? "border-indigo-500 bg-indigo-50" : "border-gray-300 hover:border-gray-400",
       ].join(" ")}
     >
       <div className="text-4xl mb-4">🎥</div>
@@ -104,10 +144,7 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
             type="file"
             accept="video/*"
             className="sr-only"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) uploadFile(f);
-            }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); }}
             disabled={uploading}
           />
         </label>
@@ -117,30 +154,29 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       {uploading && (
         <div className="mt-4 w-full max-w-xs">
           <p className="text-sm text-indigo-600">
-            {progress >= 98
-              ? "Finalizando... por favor espera"
+            {progress >= 100
+              ? "Finalizando..."
               : progress > 0
               ? `Subiendo... ${progress}%`
               : "Preparando subida..."}
           </p>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
             <div
-              className="h-2 rounded-full bg-indigo-500 transition-all duration-500"
-              style={{ width: `${Math.max(progress, 5)}%` }}
+              className="h-2 rounded-full bg-indigo-500 transition-all duration-300"
+              style={{
+                width: progress > 0 ? `${progress}%` : "8%",
+                animation: progress === 0 ? "pulse 1.5s ease-in-out infinite" : "none",
+              }}
             />
           </div>
         </div>
       )}
 
       {done && !uploading && (
-        <p className="mt-4 text-sm text-green-600 font-medium">
-          ✓ Video subido correctamente
-        </p>
+        <p className="mt-4 text-sm text-green-600 font-medium">✓ Video subido correctamente</p>
       )}
       {error && (
-        <p className="mt-4 text-xs text-red-600 max-w-xs break-words text-left">
-          {error}
-        </p>
+        <p className="mt-4 text-xs text-red-600 max-w-xs break-words text-left">{error}</p>
       )}
     </div>
   );

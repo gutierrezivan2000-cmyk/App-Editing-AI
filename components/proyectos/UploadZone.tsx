@@ -35,9 +35,14 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       // Simulate upload progress (real progress not available in this SDK version)
       let simPct = 0;
       timerRef.current = setInterval(() => {
-        simPct = Math.min(simPct + Math.random() * 4, 92);
+        // Slow down as it approaches 98% to give the upload time to finish
+        const step = simPct < 60 ? Math.random() * 5 : simPct < 85 ? Math.random() * 2 : 0.3;
+        simPct = Math.min(simPct + step, 98);
         setProgress(Math.round(simPct));
-      }, 400);
+      }, 600);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000);
 
       try {
         const pathname = `footage/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
@@ -46,14 +51,17 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
           access: "public",
           handleUploadUrl: "/api/upload",
         });
+        clearTimeout(timeoutId);
 
         clearInterval(timerRef.current!);
         setProgress(100);
         setDone(true);
         onUploaded(blob.url);
       } catch (e) {
+        clearTimeout(timeoutId);
         clearInterval(timerRef.current!);
-        setError(e instanceof Error ? e.message : "Error desconocido al subir el video");
+        const msg = e instanceof Error ? e.message : "Error desconocido al subir el video";
+        setError(msg.includes("abort") ? "La subida tardó demasiado. Intenta con un archivo más pequeño." : msg);
       } finally {
         timerRef.current = null;
         setUploading(false);
@@ -109,7 +117,9 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       {uploading && (
         <div className="mt-4 w-full max-w-xs">
           <p className="text-sm text-indigo-600">
-            {progress > 0
+            {progress >= 98
+              ? "Finalizando... por favor espera"
+              : progress > 0
               ? `Subiendo... ${progress}%`
               : "Preparando subida..."}
           </p>

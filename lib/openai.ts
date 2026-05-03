@@ -10,7 +10,10 @@ export async function transcribirConWhisperDesdeUrl(
   const res = await fetch(blobUrl);
   if (!res.ok) throw new Error(`No se pudo descargar ${blobUrl}: ${res.status}`);
   const buffer = Buffer.from(await res.arrayBuffer());
-  const tmpPath = `/tmp/whisper-${Date.now()}.mp4`;
+  // Detect extension from URL (default to mp4 for video, mp3 for audio)
+  const urlPath = new URL(blobUrl).pathname;
+  const ext = urlPath.match(/\.([a-z0-9]+)$/i)?.[1] ?? "mp4";
+  const tmpPath = `/tmp/whisper-${Date.now()}.${ext}`;
   fs.writeFileSync(tmpPath, buffer);
 
   try {

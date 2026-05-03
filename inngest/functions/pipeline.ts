@@ -41,9 +41,34 @@ export const procesarVideo = inngest.createFunction(
         }
       });
 
+      // Extract audio from video to bypass Whisper's 25MB file limit
+      const audioUrl = await step.run("extract-audio", async () => {
+        const sandbox = await createPreprocessSandbox();
+        try {
+          await sandbox.runCommand({
+            cmd: "bash",
+            args: ["-lc", `curl -L "${project.footageUrl}" -o /tmp/input.mp4`],
+          });
+          await sandbox.runCommand({
+            cmd: "bash",
+            args: [
+              "-lc",
+              `ffmpeg -y -i /tmp/input.mp4 -vn -ac 1 -ar 16000 -b:a 64k /tmp/audio.mp3`,
+            ],
+          });
+          return uploadFromSandboxToBlob(
+            sandbox,
+            "/tmp/audio.mp3",
+            `audios/${projectId}.mp3`
+          );
+        } finally {
+          await sandbox.stop();
+        }
+      });
+
       // Store transcription in Blob to avoid Inngest's 25 MB step-result limit
       const transcripcionUrl = await step.run("transcribe", async () => {
-        const words = await transcribirConWhisperDesdeUrl(project.footageUrl);
+        const words = await transcribirConWhisperDesdeUrl(audioUrl);
         return uploadToBlob(
           `transcripciones/${projectId}.json`,
           Buffer.from(JSON.stringify(words)),

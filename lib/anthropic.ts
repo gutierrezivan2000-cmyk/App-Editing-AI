@@ -17,21 +17,41 @@ export function buildOrchestrationPrompt(
   videoInputPath: string,
   videoOutputPath: string
 ): string {
+  // Plain text for content understanding (Claude doesn't need every timestamp)
+  const textoPlano = transcripcion.map((w) => w.word).join(" ");
+
+  // Truncate to 4000 chars to stay within context limits
+  const textoTruncado =
+    textoPlano.length > 4000
+      ? textoPlano.slice(0, 4000) + "… [truncado]"
+      : textoPlano;
+
+  // Only send timestamps for the first 150 words (enough for timing reference)
+  const timestampsMuestra = transcripcion
+    .slice(0, 150)
+    .map((w) => ({ w: w.word, s: w.start, e: w.end }));
+
   return `Eres un editor de video autónomo. Analiza brief, transcripción y silencios y
 devuelve un plan de edición ESTRUCTURADO. NO escribas código React ni TSX. Solo
 configuración.
 
-PERFIL DEL CLIENTE:
-${JSON.stringify(cliente, null, 2)}
+PERFIL DEL CLIENTE (resumen):
+- Fuente: ${cliente.subtitulos.fuente_principal}
+- Animación: ${cliente.subtitulos.animacion}
+- Color énfasis: ${cliente.subtitulos.color_enfasis}
+- Redes: ${cliente.redes.join(", ")}
 
 BRIEF:
 ${brief}
 
-TRANSCRIPCIÓN POR PALABRA (${transcripcion.length} palabras):
-${JSON.stringify(transcripcion, null, 2)}
+TRANSCRIPCIÓN COMPLETA (texto plano, ${transcripcion.length} palabras):
+${textoTruncado}
 
-SILENCIOS DETECTADOS:
-${JSON.stringify(silencios, null, 2)}
+MUESTRA DE TIMESTAMPS (primeras 150 palabras, formato {w,s,e}):
+${JSON.stringify(timestampsMuestra)}
+
+SILENCIOS DETECTADOS (${silencios.length} total):
+${JSON.stringify(silencios)}
 
 RUTAS PARA FFMPEG:
 - Input: ${videoInputPath}

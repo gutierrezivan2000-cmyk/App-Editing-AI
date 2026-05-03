@@ -51,7 +51,7 @@ export default function NuevoProyectoPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <Header title="Nuevo proyecto" />
 
       <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">

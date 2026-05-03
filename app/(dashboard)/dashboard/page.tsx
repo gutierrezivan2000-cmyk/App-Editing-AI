@@ -16,7 +16,7 @@ export default async function DashboardPage() {
   const recientes = proyectos.slice(0, 8);
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <Header title="Dashboard" />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

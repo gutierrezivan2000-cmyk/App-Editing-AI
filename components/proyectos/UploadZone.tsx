@@ -160,7 +160,7 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
       className={[
-        "flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-12 text-center transition-colors",
+        "flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 sm:p-12 text-center transition-colors",
         dragging
           ? "border-indigo-500 bg-indigo-50"
           : "border-gray-300 hover:border-gray-400",
@@ -206,7 +206,11 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
           ✓ Video subido correctamente
         </p>
       )}
-      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && (
+        <p className="mt-4 text-xs text-red-600 max-w-xs break-words text-left">
+          {error}
+        </p>
+      )}
     </div>
   );
 };

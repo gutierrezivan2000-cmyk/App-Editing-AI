@@ -9,13 +9,26 @@ const navItems = [
   { href: "/dashboard/clientes", label: "Clientes", icon: "👥" },
 ];
 
-export const Sidebar = () => {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export const Sidebar = ({ onClose }: SidebarProps) => {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-white">
-      <div className="flex h-16 items-center border-b border-gray-200 px-6">
+    <aside className="flex h-full w-60 flex-shrink-0 flex-col border-r border-gray-200 bg-white">
+      <div className="flex h-16 items-center justify-between border-b border-gray-200 px-6">
         <span className="text-lg font-bold text-indigo-600">VideoIA Agency</span>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 lg:hidden"
+            aria-label="Cerrar menú"
+          >
+            ✕
+          </button>
+        )}
       </div>
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <ul className="space-y-1">
@@ -28,6 +41,7 @@ export const Sidebar = () => {
               <li key={item.href}>
                 <Link
                   href={item.href}
+                  onClick={onClose}
                   className={[
                     "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     isActive

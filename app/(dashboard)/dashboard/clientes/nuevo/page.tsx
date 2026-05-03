@@ -23,7 +23,7 @@ export default function NuevoClientePage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <Header title="Nuevo cliente" />
       <Card className="max-w-2xl">
         <CardHeader>

@@ -11,7 +11,7 @@ export default async function ProyectosPage() {
   const proyectos = await getAllProyectos();
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <Header title="Proyectos" />
 
       <div className="flex items-center justify-between">

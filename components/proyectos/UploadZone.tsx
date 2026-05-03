@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
 
 interface UploadZoneProps {
@@ -13,6 +13,7 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -30,23 +31,31 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       }
 
       setUploading(true);
+
+      // Simulate upload progress (real progress not available in this SDK version)
+      let simPct = 0;
+      timerRef.current = setInterval(() => {
+        simPct = Math.min(simPct + Math.random() * 4, 92);
+        setProgress(Math.round(simPct));
+      }, 400);
+
       try {
         const pathname = `footage/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 
         const blob = await upload(pathname, file, {
           access: "public",
           handleUploadUrl: "/api/upload",
-          onUploadProgress: ({ percentage }) => {
-            setProgress(Math.round(percentage));
-          },
         });
 
+        clearInterval(timerRef.current!);
         setProgress(100);
         setDone(true);
         onUploaded(blob.url);
       } catch (e) {
+        clearInterval(timerRef.current!);
         setError(e instanceof Error ? e.message : "Error desconocido al subir el video");
       } finally {
+        timerRef.current = null;
         setUploading(false);
       }
     },
@@ -106,12 +115,8 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
           </p>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
             <div
-              className="h-2 rounded-full bg-indigo-500 transition-all duration-300"
-              style={{
-                width: progress > 0 ? `${progress}%` : "10%",
-                animation:
-                  progress > 0 ? "none" : "pulse 1.5s ease-in-out infinite",
-              }}
+              className="h-2 rounded-full bg-indigo-500 transition-all duration-500"
+              style={{ width: `${Math.max(progress, 5)}%` }}
             />
           </div>
         </div>

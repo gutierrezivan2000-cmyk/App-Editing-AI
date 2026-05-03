@@ -32,7 +32,7 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       try {
         const pathname = `footage/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 
-        // Step 1: get a client upload token from our server
+        // Get client token and upload URL from our server
         const tokenRes = await fetch("/api/upload", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -48,64 +48,40 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
         });
 
         if (!tokenRes.ok) {
-          const body = await tokenRes.json().catch(() => ({}));
-          throw new Error(
-            (body as { error?: string }).error ||
-              `Error al preparar la subida (${tokenRes.status})`
-          );
+          throw new Error("Error al preparar la subida");
         }
 
-        const { clientToken } = (await tokenRes.json()) as { clientToken?: string };
-        if (!clientToken) {
-          throw new Error(
-            "El servidor no devolvió un token. Verifica que BLOB_READ_WRITE_TOKEN esté configurado."
-          );
+        const { clientToken, uploadUrl } = (await tokenRes.json()) as {
+          clientToken?: string;
+          uploadUrl?: string;
+        };
+
+        if (!clientToken || !uploadUrl) {
+          throw new Error("No se pudo obtener credenciales de subida. Verifica que Vercel Blob Storage esté conectado.");
         }
 
-        // Step 2: upload directly to Vercel Blob CDN via XHR for real progress
-        const blobUrl = await new Promise<string>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          const encodedPathname = encodeURIComponent(pathname);
-          xhr.open("PUT", `https://blob.vercel-storage.com/${encodedPathname}`);
-          xhr.setRequestHeader("x-api-version", "7");
-          xhr.setRequestHeader("authorization", `Bearer ${clientToken}`);
-          xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
-
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              setProgress(Math.round((event.loaded / event.total) * 100));
-            }
-          };
-
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                const data = JSON.parse(xhr.responseText) as { url?: string };
-                if (data.url) resolve(data.url);
-                else reject(new Error("El servidor no devolvió la URL del video."));
-              } catch {
-                reject(new Error("Respuesta inválida del servidor de archivos."));
-              }
-            } else {
-              let msg = `Error al subir el archivo (${xhr.status})`;
-              try {
-                const data = JSON.parse(xhr.responseText) as { error?: { message?: string } };
-                if (data.error?.message) msg = data.error.message;
-              } catch { /* ignore */ }
-              reject(new Error(msg));
-            }
-          };
-
-          xhr.onerror = () => reject(new Error("Error de red al subir el video. Revisa tu conexión e inténtalo de nuevo."));
-          xhr.ontimeout = () => reject(new Error("La subida tardó demasiado. Intenta con un archivo más pequeño."));
-          xhr.timeout = 15 * 60 * 1000; // 15 min
-
-          xhr.send(file);
+        // Upload directly using the URL and token provided by our server
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "authorization": `Bearer ${clientToken}`,
+          },
+          body: file,
         });
+
+        if (!uploadRes.ok) {
+          const error = await uploadRes.text().catch(() => `HTTP ${uploadRes.status}`);
+          throw new Error(`Error al subir: ${error}`);
+        }
+
+        const uploadData = await uploadRes.json() as { url?: string };
+        if (!uploadData.url) {
+          throw new Error("El servidor no devolvió la URL del video");
+        }
 
         setProgress(100);
         setDone(true);
-        onUploaded(blobUrl);
+        onUploaded(uploadData.url);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error desconocido");
       } finally {
@@ -153,21 +129,9 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
 
       {uploading && (
         <div className="mt-4 w-full max-w-xs">
-          <p className="text-sm text-indigo-600">
-            {progress >= 100
-              ? "Finalizando..."
-              : progress > 0
-              ? `Subiendo... ${progress}%`
-              : "Preparando subida..."}
-          </p>
+          <p className="text-sm text-indigo-600">Subiendo...</p>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
-            <div
-              className="h-2 rounded-full bg-indigo-500 transition-all duration-300"
-              style={{
-                width: progress > 0 ? `${progress}%` : "8%",
-                animation: progress === 0 ? "pulse 1.5s ease-in-out infinite" : "none",
-              }}
-            />
+            <div className="h-2 rounded-full bg-indigo-500 animate-pulse" />
           </div>
         </div>
       )}

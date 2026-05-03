@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
+import { upload } from "@vercel/blob/client";
 
 interface UploadZoneProps {
   onUploaded: (url: string) => void;
@@ -32,108 +33,19 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       try {
         const pathname = `footage/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 
-        // Step 1: get a client upload token from our server
-        const tokenRes = await fetch("/api/upload", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            type: "blob.generate-client-token",
-            payload: {
-              pathname,
-              callbackUrl: `${window.location.origin}/api/upload`,
-              clientPayload: null,
-              multipart: false,
-            },
-          }),
-        });
-
-        if (!tokenRes.ok) {
-          const body = await tokenRes.json().catch(() => ({}));
-          throw new Error(
-            (body as { error?: string }).error ||
-              `Error al preparar la subida (${tokenRes.status})`
-          );
-        }
-
-        const { clientToken } = (await tokenRes.json()) as {
-          clientToken?: string;
-        };
-        if (!clientToken) {
-          throw new Error(
-            "El servidor no devolvió un token. Verifica que BLOB_READ_WRITE_TOKEN esté configurado en Vercel."
-          );
-        }
-
-        // Step 2: PUT file directly to Vercel Blob CDN via XHR for real progress
-        const blobUrl = await new Promise<string>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PUT", `https://blob.vercel-storage.com/${pathname}`);
-          xhr.setRequestHeader("x-api-version", "7");
-          xhr.setRequestHeader("authorization", `Bearer ${clientToken}`);
-
-          let uploadedPct = 0;
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              uploadedPct = Math.round((event.loaded / event.total) * 100);
-              setProgress(uploadedPct);
-            }
-          };
-
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                const data = JSON.parse(xhr.responseText) as { url?: string };
-                if (data.url) {
-                  resolve(data.url);
-                } else {
-                  reject(new Error("El servidor de archivos no devolvió la URL del video."));
-                }
-              } catch {
-                reject(new Error("Respuesta inválida del servidor de archivos."));
-              }
-            } else {
-              let msg = `Error al subir el archivo (${xhr.status})`;
-              try {
-                const data = JSON.parse(xhr.responseText) as {
-                  error?: { message?: string };
-                };
-                if (data.error?.message) msg = data.error.message;
-              } catch { /* ignore */ }
-              reject(new Error(msg));
-            }
-          };
-
-          xhr.onerror = () => {
-            // If the file reached 100 % but we can't read the response, it's
-            // almost always a CORS block caused by a missing/misconfigured
-            // Vercel Blob store rather than a real network problem.
-            const msg =
-              uploadedPct >= 100
-                ? "El archivo se transfirió al servidor pero la respuesta fue bloqueada (CORS). " +
-                  "Asegúrate de que Vercel Blob Storage esté conectado al proyecto: " +
-                  "Dashboard de Vercel → Storage → New → Blob → Connect to project."
-                : "Error de red al subir el video. Revisa tu conexión e inténtalo de nuevo.";
-            reject(new Error(msg));
-          };
-
-          xhr.ontimeout = () =>
-            reject(
-              new Error(
-                "La subida tardó demasiado tiempo. Intenta con un archivo más pequeño."
-              )
-            );
-
-          // 10-minute hard timeout
-          xhr.timeout = 10 * 60 * 1000;
-
-          xhr.send(file);
+        const blob = await upload(pathname, file, {
+          access: "public",
+          handleUploadUrl: "/api/upload",
+          onUploadProgress: ({ percentage }) => {
+            setProgress(Math.round(percentage));
+          },
         });
 
         setProgress(100);
         setDone(true);
-        onUploaded(blobUrl);
+        onUploaded(blob.url);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Error desconocido");
+        setError(e instanceof Error ? e.message : "Error desconocido al subir el video");
       } finally {
         setUploading(false);
       }
@@ -195,7 +107,11 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
             <div
               className="h-2 rounded-full bg-indigo-500 transition-all duration-300"
-              style={{ width: progress > 0 ? `${progress}%` : "10%", animation: progress > 0 ? "none" : "pulse 1.5s ease-in-out infinite" }}
+              style={{
+                width: progress > 0 ? `${progress}%` : "10%",
+                animation:
+                  progress > 0 ? "none" : "pulse 1.5s ease-in-out infinite",
+              }}
             />
           </div>
         </div>

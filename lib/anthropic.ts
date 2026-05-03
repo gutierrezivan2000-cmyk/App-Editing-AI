@@ -31,7 +31,10 @@ export function buildOrchestrationPrompt(
     .slice(0, 150)
     .map((w) => ({ w: w.texto, s: w.start, e: w.end }));
 
-  return `Eres un editor de video autónomo. Analiza brief, transcripción y silencios y
+  // Limit silencios to avoid huge payloads
+  const silenciosMuestra = silencios.slice(0, 200);
+
+  const prompt = `Eres un editor de video autónomo. Analiza brief, transcripción y silencios y
 devuelve un plan de edición ESTRUCTURADO. NO escribas código React ni TSX. Solo
 configuración.
 
@@ -50,8 +53,8 @@ ${textoTruncado}
 MUESTRA DE TIMESTAMPS (primeras 150 palabras, formato {w,s,e}):
 ${JSON.stringify(timestampsMuestra)}
 
-SILENCIOS DETECTADOS (${silencios.length} total):
-${JSON.stringify(silencios)}
+SILENCIOS DETECTADOS (${silencios.length} total, mostrando ${silenciosMuestra.length}):
+${JSON.stringify(silenciosMuestra)}
 
 RUTAS PARA FFMPEG:
 - Input: ${videoInputPath}
@@ -60,8 +63,7 @@ RUTAS PARA FFMPEG:
 TAREAS:
 1. Identifica palabras de énfasis (cifras, datos, CTAs, palabras clave del brief).
    Devuelve en lowercase, sin puntuación, deduplicado.
-2. Revisa silencios. Puedes ajustar márgenes o eliminar segmentos que no son silencio
-   real (ej. respiraciones intencionales). Devuelve la lista FINAL.
+2. Revisa silencios. Devuelve la lista FINAL de segmentos a cortar.
 3. Compón los comandos FFmpeg en orden para cortar el footage.
    Reglas FFmpeg:
    - Usa filter_complex con trim+concat para los segmentos a conservar.
@@ -78,6 +80,12 @@ RESPONDE ÚNICAMENTE CON JSON VÁLIDO con esta estructura exacta:
   "observaciones": "string",
   "animacionOverride": null
 }`;
+
+  // Hard cap: Claude's API limit is 25MB; keep well under it
+  if (prompt.length > 50_000) {
+    return prompt.slice(0, 50_000) + "\n\n[PROMPT TRUNCADO POR LÍMITE DE TAMAÑO]";
+  }
+  return prompt;
 }
 
 export async function callClaude(prompt: string): Promise<InstruccionesEdicion> {

@@ -71,9 +71,11 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
           xhr.setRequestHeader("x-api-version", "7");
           xhr.setRequestHeader("authorization", `Bearer ${clientToken}`);
 
+          let uploadedPct = 0;
           xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
-              setProgress(Math.round((event.loaded / event.total) * 100));
+              uploadedPct = Math.round((event.loaded / event.total) * 100);
+              setProgress(uploadedPct);
             }
           };
 
@@ -101,12 +103,18 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
             }
           };
 
-          xhr.onerror = () =>
-            reject(
-              new Error(
-                "Error de red al subir el video. Revisa tu conexión e inténtalo de nuevo."
-              )
-            );
+          xhr.onerror = () => {
+            // If the file reached 100 % but we can't read the response, it's
+            // almost always a CORS block caused by a missing/misconfigured
+            // Vercel Blob store rather than a real network problem.
+            const msg =
+              uploadedPct >= 100
+                ? "El archivo se transfirió al servidor pero la respuesta fue bloqueada (CORS). " +
+                  "Asegúrate de que Vercel Blob Storage esté conectado al proyecto: " +
+                  "Dashboard de Vercel → Storage → New → Blob → Connect to project."
+                : "Error de red al subir el video. Revisa tu conexión e inténtalo de nuevo.";
+            reject(new Error(msg));
+          };
 
           xhr.ontimeout = () =>
             reject(

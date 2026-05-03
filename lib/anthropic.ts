@@ -18,7 +18,7 @@ export function buildOrchestrationPrompt(
   videoOutputPath: string
 ): string {
   // Plain text for content understanding (Claude doesn't need every timestamp)
-  const textoPlano = transcripcion.map((w) => w.word).join(" ");
+  const textoPlano = transcripcion.map((w) => w.texto).join(" ");
 
   // Truncate to 4000 chars to stay within context limits
   const textoTruncado =
@@ -29,7 +29,7 @@ export function buildOrchestrationPrompt(
   // Only send timestamps for the first 150 words (enough for timing reference)
   const timestampsMuestra = transcripcion
     .slice(0, 150)
-    .map((w) => ({ w: w.word, s: w.start, e: w.end }));
+    .map((w) => ({ w: w.texto, s: w.start, e: w.end }));
 
   return `Eres un editor de video autónomo. Analiza brief, transcripción y silencios y
 devuelve un plan de edición ESTRUCTURADO. NO escribas código React ni TSX. Solo

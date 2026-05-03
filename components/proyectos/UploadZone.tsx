@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { upload } from "@vercel/blob/client";
 
 interface UploadZoneProps {
   onUploaded: (url: string) => void;
@@ -9,15 +10,23 @@ interface UploadZoneProps {
 export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   const uploadFile = useCallback(
     async (file: File) => {
       setError(null);
       setDone(false);
-      setProgress(0);
+      setElapsed(0);
 
       if (!file.type.startsWith("video/")) {
         setError("Solo se aceptan archivos de video");
@@ -29,61 +38,27 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       }
 
       setUploading(true);
+      startTimeRef.current = Date.now();
+      timerRef.current = setInterval(() => {
+        if (startTimeRef.current) {
+          setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+        }
+      }, 1000);
+
       try {
         const pathname = `footage/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 
-        // Get client token and upload URL from our server
-        const tokenRes = await fetch("/api/upload", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            type: "blob.generate-client-token",
-            payload: {
-              pathname,
-              callbackUrl: `${window.location.origin}/api/upload`,
-              clientPayload: null,
-              multipart: false,
-            },
-          }),
+        const blob = await upload(pathname, file, {
+          access: "public",
+          handleUploadUrl: "/api/upload",
         });
 
-        if (!tokenRes.ok) {
-          throw new Error("Error al preparar la subida");
-        }
-
-        const { clientToken, uploadUrl } = (await tokenRes.json()) as {
-          clientToken?: string;
-          uploadUrl?: string;
-        };
-
-        if (!clientToken || !uploadUrl) {
-          throw new Error("No se pudo obtener credenciales de subida. Verifica que Vercel Blob Storage esté conectado.");
-        }
-
-        // Upload directly using the URL and token provided by our server
-        const uploadRes = await fetch(uploadUrl, {
-          method: "PUT",
-          headers: {
-            "authorization": `Bearer ${clientToken}`,
-          },
-          body: file,
-        });
-
-        if (!uploadRes.ok) {
-          const error = await uploadRes.text().catch(() => `HTTP ${uploadRes.status}`);
-          throw new Error(`Error al subir: ${error}`);
-        }
-
-        const uploadData = await uploadRes.json() as { url?: string };
-        if (!uploadData.url) {
-          throw new Error("El servidor no devolvió la URL del video");
-        }
-
-        setProgress(100);
+        if (timerRef.current) clearInterval(timerRef.current);
         setDone(true);
-        onUploaded(uploadData.url);
+        onUploaded(blob.url);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Error desconocido");
+        if (timerRef.current) clearInterval(timerRef.current);
+        setError(e instanceof Error ? e.message : "Error desconocido al subir el video");
       } finally {
         setUploading(false);
       }
@@ -129,9 +104,14 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
 
       {uploading && (
         <div className="mt-4 w-full max-w-xs">
-          <p className="text-sm text-indigo-600">Subiendo...</p>
-          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
-            <div className="h-2 rounded-full bg-indigo-500 animate-pulse" />
+          <p className="text-sm text-indigo-600 font-medium">
+            Subiendo video... {elapsed}s
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            No cierres esta ventana. La subida puede tardar varios minutos según el tamaño y tu conexión.
+          </p>
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+            <div className="h-2 rounded-full bg-indigo-500 animate-pulse w-full" />
           </div>
         </div>
       )}

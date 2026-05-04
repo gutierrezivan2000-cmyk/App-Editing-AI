@@ -35,6 +35,8 @@ export async function uploadFromSandboxToBlob(
     `base64 -w 0 "${sandboxFilePath}"`
   );
   const buffer = Buffer.from(stdout.trim(), "base64");
-  const contentType = blobPath.endsWith(".mp4") ? "video/mp4" : "application/octet-stream";
+  const contentType = blobPath.endsWith(".mp4") ? "video/mp4"
+    : blobPath.endsWith(".mp3") ? "audio/mpeg"
+    : "application/octet-stream";
   return uploadToBlob(blobPath, buffer, contentType);
 }

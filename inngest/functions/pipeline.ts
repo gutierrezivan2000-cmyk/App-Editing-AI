@@ -1,7 +1,7 @@
 import { inngest } from "../client";
 import { getProject, updateProject } from "@/lib/db";
 import { getClienteProfile } from "@/lib/clientes";
-import { createPreprocessSandbox } from "@/lib/sandbox";
+import { createPreprocessSandbox, runInSandbox } from "@/lib/sandbox";
 import { detectarSilencios, ejecutarFFmpegCommands } from "@/lib/ffmpeg";
 import { transcribirConWhisperDesdeUrl } from "@/lib/openai";
 import { buildOrchestrationPrompt, callClaude } from "@/lib/anthropic";
@@ -31,10 +31,8 @@ export const procesarVideo = inngest.createFunction(
       const silencios = await step.run("detect-silences", async () => {
         const sandbox = await createPreprocessSandbox();
         try {
-          await sandbox.runCommand({
-            cmd: "bash",
-            args: ["-lc", `curl -L "${project.footageUrl}" -o /tmp/input.mp4`],
-          });
+          const { exitCode, stderr } = await runInSandbox(sandbox, `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`);
+          if (exitCode !== 0) throw new Error(`Download failed (curl exit ${exitCode}): ${stderr.slice(-300)}`);
           return await detectarSilencios(sandbox, "/tmp/input.mp4", cliente.silencio);
         } finally {
           await sandbox.stop();
@@ -45,22 +43,13 @@ export const procesarVideo = inngest.createFunction(
       const audioUrl = await step.run("extract-audio", async () => {
         const sandbox = await createPreprocessSandbox();
         try {
-          await sandbox.runCommand({
-            cmd: "bash",
-            args: ["-lc", `curl -L "${project.footageUrl}" -o /tmp/input.mp4`],
-          });
-          await sandbox.runCommand({
-            cmd: "bash",
-            args: [
-              "-lc",
-              `ffmpeg -y -i /tmp/input.mp4 -vn -ac 1 -ar 16000 -b:a 64k /tmp/audio.mp3`,
-            ],
-          });
-          return uploadFromSandboxToBlob(
-            sandbox,
-            "/tmp/audio.mp3",
-            `audios/${projectId}.mp3`
-          );
+          const dl = await runInSandbox(sandbox, `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`);
+          if (dl.exitCode !== 0) throw new Error(`Download failed (curl exit ${dl.exitCode}): ${dl.stderr.slice(-300)}`);
+
+          const fx = await runInSandbox(sandbox, `ffmpeg -y -i /tmp/input.mp4 -vn -ac 1 -ar 16000 -b:a 64k /tmp/audio.mp3`);
+          if (fx.exitCode !== 0) throw new Error(`Audio extraction failed (exit ${fx.exitCode}): ${fx.stderr.slice(-500)}`);
+
+          return uploadFromSandboxToBlob(sandbox, "/tmp/audio.mp3", `audios/${projectId}.mp3`);
         } finally {
           await sandbox.stop();
         }
@@ -96,10 +85,8 @@ export const procesarVideo = inngest.createFunction(
       const videoLimpioUrl = await step.run("ffmpeg-cuts", async () => {
         const sandbox = await createPreprocessSandbox();
         try {
-          await sandbox.runCommand({
-            cmd: "bash",
-            args: ["-lc", `curl -L "${project.footageUrl}" -o /tmp/input.mp4`],
-          });
+          const dl = await runInSandbox(sandbox, `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`);
+          if (dl.exitCode !== 0) throw new Error(`Download failed (curl exit ${dl.exitCode}): ${dl.stderr.slice(-300)}`);
           await ejecutarFFmpegCommands(sandbox, instrucciones.ffmpegCommands);
           return await uploadFromSandboxToBlob(
             sandbox,

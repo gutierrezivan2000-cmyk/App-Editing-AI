@@ -8,7 +8,11 @@ export async function detectarSilencios(
   config: ClienteProfile["silencio"]
 ): Promise<SilenceSegment[]> {
   const cmd = `ffmpeg -hide_banner -i "${videoPath}" -af "silencedetect=noise=${config.umbral_db}dB:d=${config.duracion_minima_seg}" -f null - 2>&1`;
-  const { stdout } = await runInSandbox(sandbox, cmd);
+  const { stdout, exitCode } = await runInSandbox(sandbox, cmd);
+
+  if (exitCode !== 0) {
+    throw new Error(`FFmpeg silence detection failed (exit ${exitCode}): ${stdout.slice(-400)}`);
+  }
 
   const startMatches = [...stdout.matchAll(/silence_start:\s*([\d.]+)/g)];
   const endMatches = [...stdout.matchAll(/silence_end:\s*([\d.]+)/g)];

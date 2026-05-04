@@ -28,28 +28,34 @@ export const procesarVideo = inngest.createFunction(
         updateProject(projectId, { status: "processing" })
       );
 
-      const silencios = await step.run("detect-silences", async () => {
+      // Combined step: download once, detect silences AND extract audio in the same sandbox
+      const { silencios, audioUrl } = await step.run("analyze-footage", async () => {
         const sandbox = await createPreprocessSandbox();
         try {
-          const { exitCode, stderr } = await runInSandbox(sandbox, `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`);
-          if (exitCode !== 0) throw new Error(`Download failed (curl exit ${exitCode}): ${stderr.slice(-300)}`);
-          return await detectarSilencios(sandbox, "/tmp/input.mp4", cliente.silencio);
-        } finally {
-          await sandbox.stop();
-        }
-      });
+          const dl = await runInSandbox(
+            sandbox,
+            `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`
+          );
+          if (dl.exitCode !== 0) {
+            throw new Error(`Download failed (curl exit ${dl.exitCode}): ${dl.stderr.slice(-300)}`);
+          }
 
-      // Extract audio from video to bypass Whisper's 25MB file limit
-      const audioUrl = await step.run("extract-audio", async () => {
-        const sandbox = await createPreprocessSandbox();
-        try {
-          const dl = await runInSandbox(sandbox, `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`);
-          if (dl.exitCode !== 0) throw new Error(`Download failed (curl exit ${dl.exitCode}): ${dl.stderr.slice(-300)}`);
+          const silencios = await detectarSilencios(sandbox, "/tmp/input.mp4", cliente.silencio);
 
-          const fx = await runInSandbox(sandbox, `ffmpeg -y -i /tmp/input.mp4 -vn -ac 1 -ar 16000 -b:a 64k /tmp/audio.mp3`);
-          if (fx.exitCode !== 0) throw new Error(`Audio extraction failed (exit ${fx.exitCode}): ${fx.stderr.slice(-500)}`);
+          const fx = await runInSandbox(
+            sandbox,
+            `ffmpeg -y -i /tmp/input.mp4 -vn -ac 1 -ar 16000 -b:a 64k /tmp/audio.mp3`
+          );
+          if (fx.exitCode !== 0) {
+            throw new Error(`Audio extraction failed (exit ${fx.exitCode}): ${fx.stderr.slice(-500)}`);
+          }
 
-          return uploadFromSandboxToBlob(sandbox, "/tmp/audio.mp3", `audios/${projectId}.mp3`);
+          const audioUrl = await uploadFromSandboxToBlob(
+            sandbox,
+            "/tmp/audio.mp3",
+            `audios/${projectId}.mp3`
+          );
+          return { silencios, audioUrl };
         } finally {
           await sandbox.stop();
         }
@@ -82,11 +88,21 @@ export const procesarVideo = inngest.createFunction(
         );
       });
 
+      // If Claude found no cuts to make, skip FFmpeg entirely and use original footage
       const videoLimpioUrl = await step.run("ffmpeg-cuts", async () => {
+        if (instrucciones.ffmpegCommands.length === 0) {
+          return project.footageUrl;
+        }
+
         const sandbox = await createPreprocessSandbox();
         try {
-          const dl = await runInSandbox(sandbox, `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`);
-          if (dl.exitCode !== 0) throw new Error(`Download failed (curl exit ${dl.exitCode}): ${dl.stderr.slice(-300)}`);
+          const dl = await runInSandbox(
+            sandbox,
+            `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`
+          );
+          if (dl.exitCode !== 0) {
+            throw new Error(`Download failed (curl exit ${dl.exitCode}): ${dl.stderr.slice(-300)}`);
+          }
           await ejecutarFFmpegCommands(sandbox, instrucciones.ffmpegCommands);
           return await uploadFromSandboxToBlob(
             sandbox,

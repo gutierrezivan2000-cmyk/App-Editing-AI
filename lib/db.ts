@@ -12,7 +12,7 @@ interface CreateProjectInput {
 interface UpdateProjectInput {
   status?: Proyecto["status"];
   outputUrl?: string;
-  errorMessage?: string;
+  errorMessage?: string | null;
 }
 
 function rowToProyecto(row: Record<string, unknown>): Proyecto {
@@ -63,7 +63,7 @@ export async function updateProject(
     SET
       status        = COALESCE(${patch.status ?? null}, status),
       output_url    = COALESCE(${patch.outputUrl ?? null}, output_url),
-      error_message = COALESCE(${patch.errorMessage ?? null}, error_message),
+      error_message = ${patch.errorMessage ?? null},
       updated_at    = NOW()
     WHERE id = ${id}
     RETURNING *

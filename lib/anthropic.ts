@@ -7,7 +7,7 @@ import {
 } from "@/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5";
+const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 
 export function buildOrchestrationPrompt(
   cliente: ClienteProfile,
@@ -17,21 +17,17 @@ export function buildOrchestrationPrompt(
   videoInputPath: string,
   videoOutputPath: string
 ): string {
-  // Plain text for content understanding (Claude doesn't need every timestamp)
   const textoPlano = transcripcion.map((w) => w.texto).join(" ");
 
-  // Truncate to 4000 chars to stay within context limits
   const textoTruncado =
     textoPlano.length > 4000
       ? textoPlano.slice(0, 4000) + "… [truncado]"
       : textoPlano;
 
-  // Only send timestamps for the first 150 words (enough for timing reference)
   const timestampsMuestra = transcripcion
     .slice(0, 150)
     .map((w) => ({ w: w.texto, s: w.start, e: w.end }));
 
-  // Limit silencios to avoid huge payloads
   const silenciosMuestra = silencios.slice(0, 200);
 
   const prompt = `Eres un editor de video autónomo. Analiza brief, transcripción y silencios y
@@ -65,7 +61,8 @@ TAREAS:
    Devuelve en lowercase, sin puntuación, deduplicado.
 2. Revisa silencios. Devuelve la lista FINAL de segmentos a cortar.
 3. Compón los comandos FFmpeg en orden para cortar el footage.
-   Reglas FFmpeg:
+   Si no hay silencios que cortar, devuelve ffmpegCommands como array vacío [].
+   Si hay cortes:
    - Usa filter_complex con trim+concat para los segmentos a conservar.
    - Output final SIEMPRE debe ser ${videoOutputPath}.
    - No uses rutas absolutas que no sean las dadas.
@@ -76,12 +73,11 @@ RESPONDE ÚNICAMENTE CON JSON VÁLIDO con esta estructura exacta:
 {
   "enfasisPalabras": ["palabra1", "palabra2"],
   "silenciosFinales": [{"start": 0.0, "end": 0.5, "duracion": 0.5}],
-  "ffmpegCommands": ["ffmpeg -i ... ${videoOutputPath}"],
+  "ffmpegCommands": [],
   "observaciones": "string",
   "animacionOverride": null
 }`;
 
-  // Hard cap: Claude's API limit is 25MB; keep well under it
   if (prompt.length > 50_000) {
     return prompt.slice(0, 50_000) + "\n\n[PROMPT TRUNCADO POR LÍMITE DE TAMAÑO]";
   }
@@ -98,21 +94,27 @@ export async function callClaude(prompt: string): Promise<InstruccionesEdicion> 
   const block = message.content[0];
   if (block.type !== "text") throw new Error("Respuesta inesperada de Claude");
 
+  // Strip all markdown code fences regardless of language tag
   const jsonText = block.text
-    .replace(/```json\s*/g, "")
-    .replace(/```\s*$/g, "")
+    .replace(/```[\w]*\s*/g, "")
+    .replace(/```/g, "")
     .trim();
 
   const match = jsonText.match(/\{[\s\S]*\}/);
   if (!match) throw new Error("Claude no devolvió JSON válido");
 
-  const parsed = JSON.parse(match[0]) as InstruccionesEdicion;
+  let parsed: InstruccionesEdicion;
+  try {
+    parsed = JSON.parse(match[0]) as InstruccionesEdicion;
+  } catch {
+    throw new Error(`JSON inválido de Claude: ${match[0].slice(0, 200)}`);
+  }
 
   if (!Array.isArray(parsed.enfasisPalabras)) {
     throw new Error("enfasisPalabras debe ser array");
   }
-  if (!Array.isArray(parsed.ffmpegCommands) || parsed.ffmpegCommands.length === 0) {
-    throw new Error("ffmpegCommands vacío");
+  if (!Array.isArray(parsed.ffmpegCommands)) {
+    throw new Error("ffmpegCommands debe ser array");
   }
 
   return parsed;

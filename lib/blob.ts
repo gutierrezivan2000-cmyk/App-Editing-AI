@@ -10,6 +10,7 @@ export async function uploadToBlob(
   const { url } = await put(key, buffer, {
     access: "public",
     contentType,
+    addRandomSuffix: false,
     token: process.env.BLOB_READ_WRITE_TOKEN,
   });
   return url;
@@ -30,11 +31,18 @@ export async function uploadFromSandboxToBlob(
   sandboxFilePath: string,
   blobPath: string
 ): Promise<string> {
-  const { stdout } = await runInSandbox(
+  const { stdout, exitCode, stderr } = await runInSandbox(
     sandbox,
     `base64 -w 0 "${sandboxFilePath}"`
   );
-  const buffer = Buffer.from(stdout.trim(), "base64");
+  if (exitCode !== 0) {
+    throw new Error(`No se pudo leer ${sandboxFilePath} del sandbox (exit ${exitCode}): ${stderr.slice(-300)}`);
+  }
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    throw new Error(`Archivo vacío en sandbox: ${sandboxFilePath}`);
+  }
+  const buffer = Buffer.from(trimmed, "base64");
   const contentType = blobPath.endsWith(".mp4") ? "video/mp4"
     : blobPath.endsWith(".mp3") ? "audio/mpeg"
     : "application/octet-stream";

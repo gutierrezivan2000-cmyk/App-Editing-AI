@@ -2,11 +2,13 @@ import { Sandbox } from "@vercel/sandbox";
 
 export async function runInSandbox(
   sandbox: Sandbox,
-  cmd: string
+  cmd: string,
+  opts: { sudo?: boolean } = {}
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const result = await sandbox.runCommand({
     cmd: "bash",
-    args: ["-lc", cmd],
+    args: ["-c", cmd],
+    ...(opts.sudo ? { sudo: true } : {}),
   });
   return {
     stdout: await result.stdout(),
@@ -22,19 +24,22 @@ export async function createPreprocessSandbox(): Promise<Sandbox> {
     resources: { vcpus: 4 },
   });
 
-  // Detect package manager: Debian/Ubuntu → apt-get, Alpine → apk
+  // Install ffmpeg with sudo; detect package manager (apt-get on Debian, apk on Alpine)
   const install = await runInSandbox(
     sandbox,
     `if command -v apt-get >/dev/null 2>&1; then
-       apt-get update -qq 2>&1 && apt-get install -y --no-install-recommends ffmpeg 2>&1
+       apt-get update -qq && apt-get install -y --no-install-recommends ffmpeg
      elif command -v apk >/dev/null 2>&1; then
-       apk add --no-cache ffmpeg 2>&1
+       apk add --no-cache ffmpeg
      else
-       echo "No supported package manager found" >&2 && exit 1
-     fi`
+       echo "No supported package manager (tried apt-get, apk)" && exit 1
+     fi`,
+    { sudo: true }
   );
   if (install.exitCode !== 0) {
-    throw new Error(`ffmpeg install failed (exit ${install.exitCode}): ${install.stdout.slice(-500)}`);
+    throw new Error(
+      `ffmpeg install failed (exit ${install.exitCode}): ${(install.stdout + install.stderr).slice(-600)}`
+    );
   }
 
   return sandbox;

@@ -22,12 +22,19 @@ export async function createPreprocessSandbox(): Promise<Sandbox> {
     resources: { vcpus: 4 },
   });
 
-  const { exitCode, stderr } = await runInSandbox(
+  // Detect package manager: Debian/Ubuntu → apt-get, Alpine → apk
+  const install = await runInSandbox(
     sandbox,
-    "apt-get update -qq 2>&1 && apt-get install -y --no-install-recommends ffmpeg 2>&1"
+    `if command -v apt-get >/dev/null 2>&1; then
+       apt-get update -qq 2>&1 && apt-get install -y --no-install-recommends ffmpeg 2>&1
+     elif command -v apk >/dev/null 2>&1; then
+       apk add --no-cache ffmpeg 2>&1
+     else
+       echo "No supported package manager found" >&2 && exit 1
+     fi`
   );
-  if (exitCode !== 0) {
-    throw new Error(`ffmpeg install failed (exit ${exitCode}): ${stderr.slice(-500)}`);
+  if (install.exitCode !== 0) {
+    throw new Error(`ffmpeg install failed (exit ${install.exitCode}): ${install.stdout.slice(-500)}`);
   }
 
   return sandbox;

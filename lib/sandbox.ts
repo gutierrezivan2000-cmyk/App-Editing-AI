@@ -7,7 +7,7 @@ export async function createPreprocessSandbox(): Promise<Sandbox> {
     resources: { vcpus: 4 },
   });
 
-  await sandbox.runCommand({
+  const install = await sandbox.runCommand({
     cmd: "bash",
     args: [
       "-lc",
@@ -15,6 +15,8 @@ export async function createPreprocessSandbox(): Promise<Sandbox> {
     ],
     sudo: true,
   });
+  // Await stdout to block until apt-get actually completes
+  await install.stdout();
 
   return sandbox;
 }

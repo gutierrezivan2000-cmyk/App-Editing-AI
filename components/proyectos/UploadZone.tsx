@@ -1,32 +1,33 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { upload } from "@vercel/blob/client";
 
 interface UploadZoneProps {
   onUploaded: (url: string) => void;
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [loaded, setLoaded] = useState(0);
+  const [total, setTotal] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const startTimeRef = useRef<number | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, []);
 
   const uploadFile = useCallback(
     async (file: File) => {
       setError(null);
       setDone(false);
-      setElapsed(0);
+      setProgress(0);
+      setLoaded(0);
+      setTotal(file.size);
 
       if (!file.type.startsWith("video/")) {
         setError("Solo se aceptan archivos de video");
@@ -38,12 +39,6 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       }
 
       setUploading(true);
-      startTimeRef.current = Date.now();
-      timerRef.current = setInterval(() => {
-        if (startTimeRef.current) {
-          setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
-        }
-      }, 1000);
 
       try {
         const pathname = `footage/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
@@ -51,13 +46,17 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
         const blob = await upload(pathname, file, {
           access: "public",
           handleUploadUrl: "/api/upload",
+          onUploadProgress: ({ loaded, total, percentage }) => {
+            setProgress(Math.round(percentage));
+            setLoaded(loaded);
+            setTotal(total);
+          },
         });
 
-        if (timerRef.current) clearInterval(timerRef.current);
+        setProgress(100);
         setDone(true);
         onUploaded(blob.url);
       } catch (e) {
-        if (timerRef.current) clearInterval(timerRef.current);
         setError(e instanceof Error ? e.message : "Error desconocido al subir el video");
       } finally {
         setUploading(false);
@@ -89,7 +88,7 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       <div className="text-4xl mb-4">🎥</div>
       <p className="text-sm font-medium text-gray-700">
         Arrastra tu video aquí o{" "}
-        <label className="cursor-pointer text-indigo-600 hover:text-indigo-700 underline">
+        <label className={`underline ${uploading ? "text-gray-400 cursor-not-allowed" : "cursor-pointer text-indigo-600 hover:text-indigo-700"}`}>
           selecciona un archivo
           <input
             type="file"
@@ -103,16 +102,22 @@ export const UploadZone = ({ onUploaded }: UploadZoneProps) => {
       <p className="mt-1 text-xs text-gray-400">MP4, MOV, etc. — máx. 500 MB</p>
 
       {uploading && (
-        <div className="mt-4 w-full max-w-xs">
-          <p className="text-sm text-indigo-600 font-medium">
-            Subiendo video... {elapsed}s
-          </p>
-          <p className="mt-1 text-xs text-gray-500">
-            No cierres esta ventana. La subida puede tardar varios minutos según el tamaño y tu conexión.
-          </p>
-          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-200">
-            <div className="h-2 rounded-full bg-indigo-500 animate-pulse w-full" />
+        <div className="mt-5 w-full max-w-xs">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm font-semibold text-indigo-700">{progress}%</span>
+            <span className="text-xs text-gray-500">
+              {formatBytes(loaded)} / {formatBytes(total)}
+            </span>
           </div>
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-200">
+            <div
+              className="h-2.5 rounded-full bg-indigo-500 transition-all duration-200"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-gray-400 text-center">
+            No cierres esta ventana mientras se sube el video
+          </p>
         </div>
       )}
 

@@ -24,16 +24,19 @@ export async function createPreprocessSandbox(): Promise<Sandbox> {
     resources: { vcpus: 4 },
   });
 
-  // Install ffmpeg with sudo; detect package manager (apt-get on Debian, apk on Alpine)
+  // node22 runtime is minimal (no apt-get/apk). Install ffmpeg via the
+  // ffmpeg-static npm package (works on any Linux x64 since npm is available).
   const install = await runInSandbox(
     sandbox,
-    `if command -v apt-get >/dev/null 2>&1; then
-       apt-get update -qq && apt-get install -y --no-install-recommends ffmpeg
-     elif command -v apk >/dev/null 2>&1; then
-       apk add --no-cache ffmpeg
-     else
-       echo "No supported package manager (tried apt-get, apk)" && exit 1
-     fi`,
+    `set -e
+     mkdir -p /tmp/ff && cd /tmp/ff
+     [ -f package.json ] || npm init -y >/dev/null 2>&1
+     npm install ffmpeg-static --silent --no-audit --no-fund --no-progress 2>&1
+     FFPATH=$(node -e "process.stdout.write(require('/tmp/ff/node_modules/ffmpeg-static'))")
+     test -f "$FFPATH" || { echo "ffmpeg-static binary not found"; exit 1; }
+     cp "$FFPATH" /usr/local/bin/ffmpeg
+     chmod +x /usr/local/bin/ffmpeg
+     ffmpeg -version | head -n 1`,
     { sudo: true }
   );
   if (install.exitCode !== 0) {

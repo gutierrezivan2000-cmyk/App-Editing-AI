@@ -18,7 +18,7 @@
     "@tailwindcss/postcss": "^4.0.0",
     "@upstash/ratelimit": "latest",
     "@upstash/redis": "latest",
-    "@vercel/blob": "^0.22.0",
+    "@vercel/blob": "2.3.3",
     "@vercel/postgres": "^0.8.0",
     "@vercel/sandbox": "latest",
     "bcryptjs": "^2.4.3",

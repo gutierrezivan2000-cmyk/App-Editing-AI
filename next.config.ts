@@ -24,9 +24,9 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  // Excluir remotion-bundle de Next.js
-  outputFileTracingExcludes: {
-    "*": ["./remotion-bundle/**"],
+  // Include remotion-bundle in API routes so addBundleToSandbox can read it at runtime.
+  outputFileTracingIncludes: {
+    "app/api/**": ["./remotion-bundle/**"],
   },
 };
 

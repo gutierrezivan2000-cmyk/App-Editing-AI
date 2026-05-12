@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "buildCommand": "npx remotion bundle remotion/index.ts ./remotion-bundle && next build",
+  "buildCommand": "npx remotion bundle remotion/index.ts && next build",
   "outputDirectory": ".next",
   "installCommand": "npm install",
   "functions": {

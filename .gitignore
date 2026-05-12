@@ -10,9 +10,7 @@
 /.next/
 /out/
 
-# production
-/build
-/remotion-bundle
+# production (remotion bundle in /build is committed intentionally)
 
 # misc
 .DS_Store

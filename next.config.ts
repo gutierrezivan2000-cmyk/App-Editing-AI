@@ -24,9 +24,9 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  // Include remotion-bundle in API routes so addBundleToSandbox can read it at runtime.
+  // Include the remotion bundle (./build) in API routes for addBundleToSandbox.
   outputFileTracingIncludes: {
-    "app/api/**": ["./remotion-bundle/**"],
+    "/api/inngest": ["./build/**"],
   },
 };
 

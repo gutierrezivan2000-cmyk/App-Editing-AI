@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "remotion bundle remotion/index.ts ./remotion-bundle && next build",
+    "build": "remotion bundle remotion/index.ts && next build",
     "start": "next start",
     "lint": "next lint",
-    "remotion:bundle": "remotion bundle remotion/index.ts ./remotion-bundle"
+    "remotion:bundle": "remotion bundle remotion/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",

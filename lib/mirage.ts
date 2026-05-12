@@ -14,14 +14,22 @@ interface MirageTemplate {
   preview_url?: string;
 }
 
+function apiKey(): string {
+  return (process.env.MIRAGE_API_KEY ?? "").trim();
+}
+
 function headers(): Record<string, string> {
+  const key = apiKey();
   return {
-    "x-api-key": process.env.MIRAGE_API_KEY ?? "",
+    "x-api-key": key,
     Accept: "application/json",
   };
 }
 
 export async function listarTemplates(): Promise<MirageTemplate[]> {
+  const key = apiKey();
+  if (!key) throw new Error("MIRAGE_API_KEY no configurada");
+
   const res = await fetch(`${MIRAGE_BASE}/api/caption-templates`, {
     headers: headers(),
   });
@@ -82,10 +90,11 @@ export async function esperarCompletado(
 export async function renderizarConMirage(
   videoUrl: string
 ): Promise<{ url: string }> {
-  const apiKey = process.env.MIRAGE_API_KEY;
-  const templateId = process.env.MIRAGE_CAPTION_TEMPLATE_ID;
-  if (!apiKey) throw new Error("MIRAGE_API_KEY no configurado");
-  if (!templateId) throw new Error("MIRAGE_CAPTION_TEMPLATE_ID no configurado");
+  const key = apiKey();
+  const templateId = (process.env.MIRAGE_CAPTION_TEMPLATE_ID ?? "").trim();
+
+  if (!key) throw new Error("MIRAGE_API_KEY no configurada en las variables de entorno");
+  if (!templateId) throw new Error("MIRAGE_CAPTION_TEMPLATE_ID no configurado — usa GET /api/mirage/templates para obtener los IDs disponibles");
 
   const jobId = await enviarVideo(videoUrl, templateId);
   const url = await esperarCompletado(jobId);
@@ -93,5 +102,9 @@ export async function renderizarConMirage(
 }
 
 export function mirageEnabled(): boolean {
-  return Boolean(process.env.MIRAGE_API_KEY && process.env.MIRAGE_CAPTION_TEMPLATE_ID);
+  return Boolean(
+    (process.env.MIRAGE_API_KEY ?? "").trim() &&
+    (process.env.MIRAGE_CAPTION_TEMPLATE_ID ?? "").trim()
+  );
 }
+

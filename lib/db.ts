@@ -34,19 +34,39 @@ function rowToProyecto(row: Record<string, unknown>): Proyecto {
 }
 
 export async function createProject(input: CreateProjectInput): Promise<Proyecto> {
-  const { rows } = await sql`
-    INSERT INTO proyectos (cliente_id, nombre, brief, footage_url, render_method, clickup_task_id)
-    VALUES (
-      ${input.clienteId},
-      ${input.nombre},
-      ${input.brief},
-      ${input.footageUrl},
-      ${input.renderMethod ?? "original"},
-      ${input.clickupTaskId ?? null}
-    )
-    RETURNING *
-  `;
-  return rowToProyecto(rows[0]);
+  try {
+    const { rows } = await sql`
+      INSERT INTO proyectos (cliente_id, nombre, brief, footage_url, render_method, clickup_task_id)
+      VALUES (
+        ${input.clienteId},
+        ${input.nombre},
+        ${input.brief},
+        ${input.footageUrl},
+        ${input.renderMethod ?? "original"},
+        ${input.clickupTaskId ?? null}
+      )
+      RETURNING *
+    `;
+    return rowToProyecto(rows[0]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Column render_method not yet migrated — fall back to legacy INSERT
+    if (msg.includes("render_method") || msg.includes("column")) {
+      const { rows } = await sql`
+        INSERT INTO proyectos (cliente_id, nombre, brief, footage_url, clickup_task_id)
+        VALUES (
+          ${input.clienteId},
+          ${input.nombre},
+          ${input.brief},
+          ${input.footageUrl},
+          ${input.clickupTaskId ?? null}
+        )
+        RETURNING *
+      `;
+      return rowToProyecto(rows[0]);
+    }
+    throw err;
+  }
 }
 
 export async function getProject(id: string): Promise<Proyecto> {

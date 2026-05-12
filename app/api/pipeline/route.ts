@@ -45,9 +45,10 @@ export async function POST(req: Request) {
       { status: 202 }
     );
   } catch (error) {
-    console.error("[pipeline/route]", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[pipeline/route]", msg);
     return NextResponse.json(
-      { error: "Error interno del servidor" },
+      { error: "Error interno del servidor", detail: msg },
       { status: 500 }
     );
   }

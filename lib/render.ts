@@ -4,12 +4,13 @@ import {
   renderMediaOnVercel,
   uploadToVercelBlob,
 } from "@remotion/vercel";
-import path from "node:path";
 import type { RenderInputProps } from "@/types";
 
-// Remotion CLI outputs the bundle to ./build by default.
-// Use path.join so addBundleToSandbox receives an absolute path unambiguously.
-const BUNDLE_DIR = path.join(process.cwd(), "build");
+// Pass a bare relative path — addBundleToSandbox does path.join(cwd, bundleDir)
+// internally. If we pass an absolute path, path.join concatenates the two absolute
+// segments: path.join('/var/task', '/var/task/build') → '/var/task/var/task/build'.
+// With a relative "build", path.join('/var/task', 'build') → '/var/task/build' ✓
+const BUNDLE_DIR = "build";
 
 export async function renderizarVideoFinal(
   projectId: string,

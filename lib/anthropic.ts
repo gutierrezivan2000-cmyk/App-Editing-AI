@@ -6,8 +6,11 @@ import {
   InstruccionesEdicion,
 } from "@/types";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// timeout slightly below Vercel's maxDuration (300 s) so we get a clean error
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 270_000 });
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5";
+
+const MAX_WORDS_IN_PROMPT = 600;
 
 export function buildOrchestrationPrompt(
   cliente: ClienteProfile,
@@ -17,47 +20,32 @@ export function buildOrchestrationPrompt(
   videoInputPath: string,
   videoOutputPath: string
 ): string {
-  return `Eres un editor de video autónomo. Analiza brief, transcripción y silencios y
-devuelve un plan de edición ESTRUCTURADO. NO escribas código React ni TSX. Solo
-configuración.
+  // Compact serialization to reduce tokens; truncate long transcriptions
+  const words = transcripcion.slice(0, MAX_WORDS_IN_PROMPT);
+  const truncated = transcripcion.length > MAX_WORDS_IN_PROMPT
+    ? ` (primeras ${MAX_WORDS_IN_PROMPT} de ${transcripcion.length})`
+    : "";
 
-PERFIL DEL CLIENTE:
-${JSON.stringify(cliente, null, 2)}
+  return `Eres un editor de video autónomo. Analiza brief, transcripción y silencios y devuelve un plan de edición ESTRUCTURADO. NO escribas código React ni TSX. Solo configuración.
 
-BRIEF:
-${brief}
+PERFIL DEL CLIENTE: ${JSON.stringify(cliente)}
 
-TRANSCRIPCIÓN POR PALABRA (${transcripcion.length} palabras):
-${JSON.stringify(transcripcion, null, 2)}
+BRIEF: ${brief}
 
-SILENCIOS DETECTADOS:
-${JSON.stringify(silencios, null, 2)}
+TRANSCRIPCIÓN${truncated}: ${JSON.stringify(words)}
 
-RUTAS PARA FFMPEG:
-- Input: ${videoInputPath}
-- Output final del corte: ${videoOutputPath}
+SILENCIOS: ${JSON.stringify(silencios)}
+
+RUTAS FFMPEG — Input: ${videoInputPath} | Output: ${videoOutputPath}
 
 TAREAS:
-1. Identifica palabras de énfasis (cifras, datos, CTAs, palabras clave del brief).
-   Devuelve en lowercase, sin puntuación, deduplicado.
-2. Revisa silencios. Puedes ajustar márgenes o eliminar segmentos que no son silencio
-   real (ej. respiraciones intencionales). Devuelve la lista FINAL.
-3. Compón los comandos FFmpeg en orden para cortar el footage.
-   Reglas FFmpeg:
-   - Usa filter_complex con trim+concat para los segmentos a conservar.
-   - Output final SIEMPRE debe ser ${videoOutputPath}.
-   - No uses rutas absolutas que no sean las dadas.
-   - Codec: libx264, preset: fast, crf: 20, audio aac 128k.
-4. Notas opcionales para revisión humana.
+1. Palabras de énfasis: cifras, CTAs, palabras clave del brief. Lowercase, sin puntuación, deduplicado.
+2. Silencios finales: revisa y ajusta la lista. Si no hay cortes útiles devuelve [].
+3. Comandos FFmpeg con filter_complex trim+concat. Codec libx264 fast crf20 aac 128k. Si no se necesitan cortes devuelve [].
+4. Observaciones opcionales.
 
-RESPONDE ÚNICAMENTE CON JSON VÁLIDO con esta estructura exacta:
-{
-  "enfasisPalabras": ["palabra1", "palabra2"],
-  "silenciosFinales": [{"start": 0.0, "end": 0.5, "duracion": 0.5}],
-  "ffmpegCommands": ["ffmpeg -i ... ${videoOutputPath}"],
-  "observaciones": "string",
-  "animacionOverride": null
-}`;
+RESPONDE ÚNICAMENTE JSON:
+{"enfasisPalabras":[],"silenciosFinales":[],"ffmpegCommands":[],"observaciones":"","animacionOverride":null}`;
 }
 
 export async function callClaude(prompt: string): Promise<InstruccionesEdicion> {
@@ -83,8 +71,8 @@ export async function callClaude(prompt: string): Promise<InstruccionesEdicion> 
   if (!Array.isArray(parsed.enfasisPalabras)) {
     throw new Error("enfasisPalabras debe ser array");
   }
-  if (!Array.isArray(parsed.ffmpegCommands) || parsed.ffmpegCommands.length === 0) {
-    throw new Error("ffmpegCommands vacío");
+  if (!Array.isArray(parsed.ffmpegCommands)) {
+    throw new Error("ffmpegCommands debe ser array");
   }
 
   return parsed;

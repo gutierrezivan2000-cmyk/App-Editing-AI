@@ -5,7 +5,7 @@
   "installCommand": "npm install",
   "functions": {
     "app/api/inngest/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "app/api/pipeline/route.ts": {
       "maxDuration": 30

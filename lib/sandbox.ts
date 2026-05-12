@@ -7,14 +7,24 @@ export async function createPreprocessSandbox(): Promise<Sandbox> {
     resources: { vcpus: 4 },
   });
 
-  await sandbox.runCommand({
+  // node22 runtime doesn't have apt-get; install ffmpeg via ffmpeg-static npm package
+  const result = await sandbox.runCommand({
     cmd: "bash",
     args: [
       "-lc",
-      "apt-get update && apt-get install -y --no-install-recommends ffmpeg",
+      [
+        "cd /tmp && npm install ffmpeg-static 2>&1 | tail -2",
+        "node -e \"const{execSync}=require('child_process');execSync('ln -sf '+require('/tmp/node_modules/ffmpeg-static')+' /usr/local/bin/ffmpeg')\"",
+        "ffmpeg -version 2>&1 | head -1",
+      ].join(" && "),
     ],
-    sudo: true,
   });
+
+  const exitCode = result.exitCode;
+  if (exitCode !== 0) {
+    const stderr = await result.stderr();
+    throw new Error(`ffmpeg setup failed (exit ${exitCode}): ${stderr.slice(-300)}`);
+  }
 
   return sandbox;
 }

@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 export default function NuevoProyectoPage() {
   const router = useRouter();
   const [footageUrl, setFootageUrl] = useState<string | null>(null);
+  const [renderMethod, setRenderMethod] = useState<"original" | "mirage">("original");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +34,7 @@ export default function NuevoProyectoPage() {
           nombre: form.get("nombre") as string,
           brief: form.get("brief") as string,
           footageUrl,
+          renderMethod,
           clickupTaskId: (form.get("clickupTaskId") as string) || undefined,
         }),
       });
@@ -87,6 +89,50 @@ export default function NuevoProyectoPage() {
           </CardHeader>
           <CardContent>
             <UploadZone onUploaded={setFootageUrl} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="text-sm font-semibold text-gray-900">Método de render</h2>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <label className="flex items-start gap-3 cursor-pointer rounded-lg border p-3 hover:bg-gray-50 transition-colors"
+              style={{ borderColor: renderMethod === "original" ? "#1a73e8" : "#e5e7eb", background: renderMethod === "original" ? "#eff6ff" : undefined }}>
+              <input
+                type="radio"
+                name="renderMethod"
+                value="original"
+                checked={renderMethod === "original"}
+                onChange={() => setRenderMethod("original")}
+                className="mt-0.5"
+              />
+              <div>
+                <p className="text-sm font-medium text-gray-900">Original — Whisper + Remotion</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Transcripción con Whisper, Claude decide énfasis y animación, Remotion renderiza subtítulos dinámicos.
+                </p>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer rounded-lg border p-3 hover:bg-gray-50 transition-colors"
+              style={{ borderColor: renderMethod === "mirage" ? "#1a73e8" : "#e5e7eb", background: renderMethod === "mirage" ? "#eff6ff" : undefined }}>
+              <input
+                type="radio"
+                name="renderMethod"
+                value="mirage"
+                checked={renderMethod === "mirage"}
+                onChange={() => setRenderMethod("mirage")}
+                className="mt-0.5"
+              />
+              <div>
+                <p className="text-sm font-medium text-gray-900">Mirage — Captions.ai</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Subtítulos automáticos vía Captions.ai. Más rápido, sin Whisper ni Remotion. Requiere{" "}
+                  <code className="bg-gray-100 px-1 rounded text-xs">MIRAGE_API_KEY</code> configurada.
+                  Límite: 50 MB / 1 min / formato 9:16.
+                </p>
+              </div>
+            </label>
           </CardContent>
         </Card>
 

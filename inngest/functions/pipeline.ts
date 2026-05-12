@@ -6,7 +6,7 @@ import { detectarSilencios, ejecutarFFmpegCommands } from "@/lib/ffmpeg";
 import { transcribirConWhisperDesdeUrl } from "@/lib/openai";
 import { buildOrchestrationPrompt, callClaude } from "@/lib/anthropic";
 import { renderizarVideoFinal } from "@/lib/render";
-import { renderizarConMirage, mirageEnabled } from "@/lib/mirage";
+import { renderizarConMirage } from "@/lib/mirage";
 import { uploadFromSandboxToBlob, uploadToBlob, downloadFromBlob } from "@/lib/blob";
 
 export const procesarVideo = inngest.createFunction(
@@ -17,8 +17,11 @@ export const procesarVideo = inngest.createFunction(
   },
   { event: "pipeline/run" },
   async ({ event, step }) => {
-    const { projectId } = event.data as { projectId: string };
-    const useMirage = mirageEnabled();
+    const { projectId, renderMethod = "original" } = event.data as {
+      projectId: string;
+      renderMethod?: "original" | "mirage";
+    };
+    const useMirage = renderMethod === "mirage";
 
     try {
       const project = await step.run("get-project", () => getProject(projectId));

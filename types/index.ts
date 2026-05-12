@@ -47,6 +47,7 @@ export interface Proyecto {
   footageUrl: string;
   outputUrl?: string;
   status: "pending" | "processing" | "completed" | "error";
+  renderMethod: "original" | "mirage";
   clickupTaskId?: string;
   errorMessage?: string;
   createdAt: Date;

@@ -6,6 +6,7 @@ interface CreateProjectInput {
   nombre: string;
   brief: string;
   footageUrl: string;
+  renderMethod?: "original" | "mirage";
   clickupTaskId?: string;
 }
 
@@ -24,6 +25,7 @@ function rowToProyecto(row: Record<string, unknown>): Proyecto {
     footageUrl: row.footage_url as string,
     outputUrl: row.output_url as string | undefined,
     status: row.status as Proyecto["status"],
+    renderMethod: (row.render_method as Proyecto["renderMethod"]) ?? "original",
     clickupTaskId: row.clickup_task_id as string | undefined,
     errorMessage: row.error_message as string | undefined,
     createdAt: new Date(row.created_at as string),
@@ -33,12 +35,13 @@ function rowToProyecto(row: Record<string, unknown>): Proyecto {
 
 export async function createProject(input: CreateProjectInput): Promise<Proyecto> {
   const { rows } = await sql`
-    INSERT INTO proyectos (cliente_id, nombre, brief, footage_url, clickup_task_id)
+    INSERT INTO proyectos (cliente_id, nombre, brief, footage_url, render_method, clickup_task_id)
     VALUES (
       ${input.clienteId},
       ${input.nombre},
       ${input.brief},
       ${input.footageUrl},
+      ${input.renderMethod ?? "original"},
       ${input.clickupTaskId ?? null}
     )
     RETURNING *

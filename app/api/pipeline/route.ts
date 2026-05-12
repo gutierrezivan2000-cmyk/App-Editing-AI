@@ -13,7 +13,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const { clienteId, footageUrl, brief, nombre, clickupTaskId } =
+    const { clienteId, footageUrl, brief, nombre, clickupTaskId, renderMethod } =
       await req.json();
 
     if (!clienteId || !footageUrl || !brief || !nombre) {
@@ -23,17 +23,21 @@ export async function POST(req: Request) {
       );
     }
 
+    const method: "original" | "mirage" =
+      renderMethod === "mirage" ? "mirage" : "original";
+
     const project = await createProject({
       clienteId,
       footageUrl,
       brief,
       nombre,
       clickupTaskId,
+      renderMethod: method,
     });
 
     await inngest.send({
       name: "pipeline/run",
-      data: { projectId: project.id },
+      data: { projectId: project.id, renderMethod: method },
     });
 
     return NextResponse.json(

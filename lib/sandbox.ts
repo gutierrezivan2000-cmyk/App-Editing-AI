@@ -7,15 +7,17 @@ export async function createPreprocessSandbox(): Promise<Sandbox> {
     resources: { vcpus: 4 },
   });
 
-  // node22 runtime doesn't have apt-get; install ffmpeg via ffmpeg-static npm package
+  // node22 has no apt-get and no root; install ffmpeg-static via npm and
+  // place a wrapper script in /tmp/bin (user-writable) instead of /usr/local/bin
   const result = await sandbox.runCommand({
     cmd: "bash",
     args: [
       "-lc",
       [
         "cd /tmp && npm install ffmpeg-static 2>&1 | tail -2",
-        "node -e \"const{execSync}=require('child_process');execSync('ln -sf '+require('/tmp/node_modules/ffmpeg-static')+' /usr/local/bin/ffmpeg')\"",
-        "ffmpeg -version 2>&1 | head -1",
+        "mkdir -p /tmp/bin",
+        "node -e \"const fs=require('fs'),p=require('/tmp/node_modules/ffmpeg-static');fs.writeFileSync('/tmp/bin/ffmpeg','#!/bin/sh\\nexec \\\"'+p+'\\\" \\\"$@\\\"\\n');fs.chmodSync('/tmp/bin/ffmpeg',0o755)\"",
+        "PATH=/tmp/bin:$PATH ffmpeg -version 2>&1 | head -1",
       ].join(" && "),
     ],
   });
@@ -33,9 +35,10 @@ export async function runInSandbox(
   sandbox: Sandbox,
   cmd: string
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  // Always prepend /tmp/bin so the ffmpeg wrapper installed at setup is found
   const result = await sandbox.runCommand({
     cmd: "bash",
-    args: ["-lc", cmd],
+    args: ["-lc", `export PATH=/tmp/bin:$PATH; ${cmd}`],
   });
   return {
     stdout: await result.stdout(),

@@ -7,16 +7,19 @@ export async function createPreprocessSandbox(): Promise<Sandbox> {
     resources: { vcpus: 4 },
   });
 
-  // node22 has no apt-get and no root; install ffmpeg-static via npm and
-  // place a wrapper script in /tmp/bin (user-writable) instead of /usr/local/bin
+  // node22 has no apt-get and no root. Install ffmpeg-static via npm, then
+  // write the wrapper with printf + single-quoted format string so that
+  // the literal "$@" is written to the file without bash expanding it.
   const result = await sandbox.runCommand({
     cmd: "bash",
     args: [
       "-lc",
       [
         "cd /tmp && npm install ffmpeg-static 2>&1 | tail -2",
+        "FFMPEG_BIN=$(node -e \"process.stdout.write(require('/tmp/node_modules/ffmpeg-static'))\")",
         "mkdir -p /tmp/bin",
-        "node -e \"const fs=require('fs'),p=require('/tmp/node_modules/ffmpeg-static');fs.writeFileSync('/tmp/bin/ffmpeg','#!/bin/sh\\nexec \\\"'+p+'\\\" \\\"$@\\\"\\n');fs.chmodSync('/tmp/bin/ffmpeg',0o755)\"",
+        "printf '#!/bin/sh\\nexec \"%s\" \"$@\"\\n' \"$FFMPEG_BIN\" > /tmp/bin/ffmpeg",
+        "chmod +x /tmp/bin/ffmpeg",
         "PATH=/tmp/bin:$PATH ffmpeg -version 2>&1 | head -1",
       ].join(" && "),
     ],
@@ -24,8 +27,9 @@ export async function createPreprocessSandbox(): Promise<Sandbox> {
 
   const exitCode = result.exitCode;
   if (exitCode !== 0) {
-    const stderr = await result.stderr();
-    throw new Error(`ffmpeg setup failed (exit ${exitCode}): ${stderr.slice(-300)}`);
+    const rawErr = await result.stderr();
+    const errStr = typeof rawErr === "string" ? rawErr : Buffer.from(rawErr as Uint8Array).toString("utf8");
+    throw new Error(`ffmpeg setup failed (exit ${exitCode}): ${errStr.slice(-300)}`);
   }
 
   return sandbox;
@@ -35,14 +39,17 @@ export async function runInSandbox(
   sandbox: Sandbox,
   cmd: string
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  // Always prepend /tmp/bin so the ffmpeg wrapper installed at setup is found
+  // Prepend /tmp/bin so the ffmpeg wrapper installed at setup is always found
   const result = await sandbox.runCommand({
     cmd: "bash",
     args: ["-lc", `export PATH=/tmp/bin:$PATH; ${cmd}`],
   });
+
+  const rawOut = await result.stdout();
+  const rawErr = await result.stderr();
   return {
-    stdout: await result.stdout(),
-    stderr: await result.stderr(),
+    stdout: typeof rawOut === "string" ? rawOut : Buffer.from(rawOut as Uint8Array).toString("utf8"),
+    stderr: typeof rawErr === "string" ? rawErr : Buffer.from(rawErr as Uint8Array).toString("utf8"),
     exitCode: result.exitCode,
   };
 }

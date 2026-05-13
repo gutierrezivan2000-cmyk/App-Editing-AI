@@ -4,6 +4,7 @@ import { createPreprocessSandbox, runInSandbox } from "@/lib/sandbox";
 import { detectarSilencios } from "@/lib/ffmpeg";
 import { uploadToBlob } from "@/lib/blob";
 import { generarPremiereXML, type VideoMetadata } from "@/lib/premiere-xml";
+import { generarDaVinciEDL } from "@/lib/davinci-edl";
 
 /**
  * Pipeline simplificado: silencios → XML para Premiere Pro.
@@ -51,23 +52,34 @@ export const cortarSilencios = inngest.createFunction(
         }
       });
 
-      const xmlResult = await step.run("generate-xml", async () => {
-        const { xml, segments } = generarPremiereXML({
+      const exportResult = await step.run("generate-exports", async () => {
+        const exportOpts = {
           videoUrl: corte.footageUrl,
           videoName: corte.nombre,
           metadata: analisis.metadata,
           silencios: analisis.silencios,
           sequenceName: `${corte.nombre}_sin_silencios`,
-        });
+        };
 
-        const xmlUrl = await uploadToBlob(
-          `cortes-xml/${corteId}.xml`,
-          Buffer.from(xml, "utf8"),
-          "application/xml"
-        );
+        const { xml, segments } = generarPremiereXML(exportOpts);
+        const { edl } = generarDaVinciEDL(exportOpts);
+
+        const [xmlUrl, edlUrl] = await Promise.all([
+          uploadToBlob(
+            `cortes-xml/${corteId}.xml`,
+            Buffer.from(xml, "utf8"),
+            "application/xml"
+          ),
+          uploadToBlob(
+            `cortes-edl/${corteId}.edl`,
+            Buffer.from(edl, "utf8"),
+            "text/plain"
+          ),
+        ]);
 
         return {
           xmlUrl,
+          edlUrl,
           segmentsCount: segments.length,
           silenciosCount: analisis.silencios.length,
           duracionSeg: analisis.metadata.duracion,
@@ -77,14 +89,15 @@ export const cortarSilencios = inngest.createFunction(
       await step.run("mark-completed", () =>
         updateCorte(corteId, {
           status: "completed",
-          xmlUrl: xmlResult.xmlUrl,
-          segmentsCount: xmlResult.segmentsCount,
-          silenciosCount: xmlResult.silenciosCount,
-          duracionSeg: xmlResult.duracionSeg,
+          xmlUrl: exportResult.xmlUrl,
+          edlUrl: exportResult.edlUrl,
+          segmentsCount: exportResult.segmentsCount,
+          silenciosCount: exportResult.silenciosCount,
+          duracionSeg: exportResult.duracionSeg,
         })
       );
 
-      return { corteId, xmlUrl: xmlResult.xmlUrl };
+      return { corteId, xmlUrl: exportResult.xmlUrl, edlUrl: exportResult.edlUrl };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await updateCorte(corteId, { status: "error", errorMessage: msg });

@@ -12,6 +12,7 @@ interface CorteStatus {
   nombre: string;
   status: "pending" | "processing" | "completed" | "error";
   xmlUrl?: string;
+  edlUrl?: string;
   errorMessage?: string;
   silenciosCount: number;
   segmentsCount: number;
@@ -155,18 +156,29 @@ export default function CorteDetailPage() {
               </div>
             </div>
 
-            {corte.xmlUrl && (
-              <a href={corte.xmlUrl} download={`${corte.nombre}.xml`}>
-                <Button>Descargar XML para Premiere Pro</Button>
-              </a>
-            )}
+            <div className="flex flex-col sm:flex-row gap-3">
+              {corte.xmlUrl && (
+                <a href={corte.xmlUrl} download={`${corte.nombre}.xml`} className="flex-1">
+                  <Button className="w-full">Descargar XML — Premiere Pro</Button>
+                </a>
+              )}
+              {corte.edlUrl && (
+                <a href={corte.edlUrl} download={`${corte.nombre}.edl`} className="flex-1">
+                  <Button variant="secondary" className="w-full">Descargar EDL — DaVinci Resolve</Button>
+                </a>
+              )}
+            </div>
 
-            <p className="text-xs text-gray-500">
-              <strong>Cómo importar:</strong> en Premiere Pro, ve a{" "}
-              <em>File → Import</em> y selecciona el XML descargado. Premiere
-              creará una secuencia con los segmentos ya cortados; el archivo
-              original debe estar accesible vía URL pública.
-            </p>
+            <div className="space-y-2 text-xs text-gray-500">
+              <p>
+                <strong>Premiere Pro:</strong> ve a <em>File → Import</em> y selecciona el
+                XML. Premiere creará una secuencia con los segmentos ya cortados.
+              </p>
+              <p>
+                <strong>DaVinci Resolve:</strong> ve a <em>File → Import Timeline → Import EDL</em>,
+                selecciona el EDL y luego re-enlaza el media al footage original.
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}

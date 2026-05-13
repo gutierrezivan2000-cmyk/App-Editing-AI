@@ -5,6 +5,7 @@ export interface Corte {
   nombre: string;
   footageUrl: string;
   xmlUrl?: string;
+  edlUrl?: string;
   status: "pending" | "processing" | "completed" | "error";
   errorMessage?: string;
   umbralDb: number;
@@ -28,6 +29,7 @@ interface CreateCorteInput {
 interface UpdateCorteInput {
   status?: Corte["status"];
   xmlUrl?: string;
+  edlUrl?: string;
   errorMessage?: string;
   silenciosCount?: number;
   segmentsCount?: number;
@@ -40,6 +42,7 @@ function rowToCorte(row: Record<string, unknown>): Corte {
     nombre: row.nombre as string,
     footageUrl: row.footage_url as string,
     xmlUrl: (row.xml_url as string | null) ?? undefined,
+    edlUrl: (row.edl_url as string | null) ?? undefined,
     status: row.status as Corte["status"],
     errorMessage: (row.error_message as string | null) ?? undefined,
     umbralDb: Number(row.umbral_db),
@@ -83,6 +86,7 @@ export async function updateCorte(
     SET
       status          = COALESCE(${patch.status ?? null}, status),
       xml_url         = COALESCE(${patch.xmlUrl ?? null}, xml_url),
+      edl_url         = COALESCE(${patch.edlUrl ?? null}, edl_url),
       error_message   = COALESCE(${patch.errorMessage ?? null}, error_message),
       silencios_count = COALESCE(${patch.silenciosCount ?? null}, silencios_count),
       segments_count  = COALESCE(${patch.segmentsCount ?? null}, segments_count),

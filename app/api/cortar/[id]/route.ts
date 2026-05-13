@@ -13,6 +13,7 @@ export async function GET(
       nombre: corte.nombre,
       status: corte.status,
       xmlUrl: corte.xmlUrl,
+      edlUrl: corte.edlUrl,
       errorMessage: corte.errorMessage,
       silenciosCount: corte.silenciosCount,
       segmentsCount: corte.segmentsCount,

@@ -43,6 +43,13 @@ export async function POST(req: Request) {
     await sql`CREATE INDEX IF NOT EXISTS idx_cortes_created ON cortes(created_at DESC)`;
     applied.push("0003_cortes");
 
+    // 0004: columna edl_url en cortes (DaVinci Resolve export)
+    await sql`
+      ALTER TABLE cortes
+        ADD COLUMN IF NOT EXISTS edl_url TEXT
+    `;
+    applied.push("0004_edl_url");
+
     return NextResponse.json({ ok: true, applied });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

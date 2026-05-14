@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     "@remotion/vercel",
     "@remotion/renderer",
     "@remotion/bundler",
+    "ffmpeg-static",
   ],
   webpack: (config, { isServer }) => {
     if (isServer) {
@@ -14,7 +15,8 @@ const nextConfig: NextConfig = {
         "@vercel/sandbox",
         "@remotion/vercel",
         "@remotion/renderer",
-        "@remotion/bundler"
+        "@remotion/bundler",
+        "ffmpeg-static"
       );
     }
     // Remotion bundle directory no debe ser procesado por webpack
@@ -24,9 +26,14 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  // Include the remotion bundle (./build) in API routes for addBundleToSandbox.
+  // Incluye en el lambda de /api/inngest:
+  // - bundle de Remotion (./build) para addBundleToSandbox
+  // - binario de ffmpeg-static (lo usa el módulo de montaje)
   outputFileTracingIncludes: {
-    "/api/inngest": ["./build/**"],
+    "/api/inngest": [
+      "./build/**",
+      "./node_modules/ffmpeg-static/**",
+    ],
   },
 };
 

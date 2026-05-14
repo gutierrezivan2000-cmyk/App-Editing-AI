@@ -50,6 +50,32 @@ export async function POST(req: Request) {
     `;
     applied.push("0004_edl_url");
 
+    // 0005: tabla montajes (cortar silencios + montar MP4 final)
+    await sql`
+      CREATE TABLE IF NOT EXISTS montajes (
+        id                       TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+        nombre                   TEXT NOT NULL,
+        footage_url              TEXT NOT NULL,
+        video_final_url          TEXT,
+        status                   TEXT NOT NULL DEFAULT 'pending'
+                                 CHECK (status IN ('pending', 'processing', 'completed', 'error')),
+        step                     TEXT,
+        error_message            TEXT,
+        umbral_db                REAL DEFAULT -30,
+        duracion_minima          REAL DEFAULT 0.5,
+        margen_seg               REAL DEFAULT 0.05,
+        silencios_count          INT  DEFAULT 0,
+        segments_count           INT  DEFAULT 0,
+        duracion_original_seg    REAL DEFAULT 0,
+        duracion_final_seg       REAL DEFAULT 0,
+        created_at               TIMESTAMP DEFAULT NOW(),
+        updated_at               TIMESTAMP DEFAULT NOW()
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_montajes_status  ON montajes(status)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_montajes_created ON montajes(created_at DESC)`;
+    applied.push("0005_montajes");
+
     return NextResponse.json({ ok: true, applied });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

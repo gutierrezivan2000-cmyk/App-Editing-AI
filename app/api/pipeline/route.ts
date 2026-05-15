@@ -23,8 +23,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const method: "original" | "mirage" =
-      renderMethod === "mirage" ? "mirage" : "original";
+    const method: "original" | "mirage" | "cortes" =
+      renderMethod === "mirage"
+        ? "mirage"
+        : renderMethod === "cortes"
+        ? "cortes"
+        : "original";
 
     const project = await createProject({
       clienteId,
@@ -35,10 +39,17 @@ export async function POST(req: Request) {
       renderMethod: method,
     });
 
-    await inngest.send({
-      name: "pipeline/run",
-      data: { projectId: project.id, renderMethod: method },
-    });
+    if (method === "cortes") {
+      await inngest.send({
+        name: "pipeline/cortes-run",
+        data: { projectId: project.id },
+      });
+    } else {
+      await inngest.send({
+        name: "pipeline/run",
+        data: { projectId: project.id, renderMethod: method },
+      });
+    }
 
     return NextResponse.json(
       { projectId: project.id, status: "queued" },

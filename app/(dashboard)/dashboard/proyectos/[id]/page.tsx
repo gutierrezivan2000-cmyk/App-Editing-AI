@@ -43,6 +43,7 @@ export default async function ProyectoDetailPage({
             <PipelineStatus
               projectId={proyecto.id}
               initialStatus={proyecto.status}
+              renderMethod={proyecto.renderMethod}
             />
           </CardContent>
         </Card>
@@ -70,12 +71,12 @@ export default async function ProyectoDetailPage({
         </Card>
       </div>
 
-      {proyecto.status === "completed" && proyecto.outputUrl && (
+      {proyecto.renderMethod !== "cortes" && proyecto.status === "completed" && proyecto.outputUrl && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-900">Video final</h2>
-              <a href={proyecto.outputUrl} download>
+              <a href={`/api/pipeline/${proyecto.id}/download?type=output`}>
                 <Button size="sm" variant="secondary">
                   ⬇ Descargar
                 </Button>

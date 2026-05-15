@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import { WordTimestamp } from "@/types";
 import fs from "node:fs";
+import path from "node:path";
+import { tmpdir } from "node:os";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -10,7 +12,7 @@ export async function transcribirConWhisperDesdeUrl(
   const res = await fetch(blobUrl);
   if (!res.ok) throw new Error(`No se pudo descargar ${blobUrl}: ${res.status}`);
   const buffer = Buffer.from(await res.arrayBuffer());
-  const tmpPath = `/tmp/whisper-${Date.now()}.mp4`;
+  const tmpPath = path.join(tmpdir(), `whisper-${Date.now()}.mp4`);
   fs.writeFileSync(tmpPath, buffer);
 
   try {

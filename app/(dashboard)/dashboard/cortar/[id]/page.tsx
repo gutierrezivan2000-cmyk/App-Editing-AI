@@ -13,6 +13,9 @@ interface CorteStatus {
   status: "pending" | "processing" | "completed" | "error";
   xmlUrl?: string;
   edlUrl?: string;
+  capcutUrl?: string;
+  footageUrl?: string;
+  localFilename?: string;
   errorMessage?: string;
   silenciosCount: number;
   segmentsCount: number;
@@ -157,26 +160,51 @@ export default function CorteDetailPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
+              {corte.footageUrl && (
+                <a href={`/api/cortar/${corte.id}/download?type=footage`} className="flex-1">
+                  <Button variant="secondary" className="w-full">
+                    Descargar vídeo original
+                  </Button>
+                </a>
+              )}
               {corte.xmlUrl && (
-                <a href={corte.xmlUrl} download={`${corte.nombre}.xml`} className="flex-1">
+                <a href={`/api/cortar/${corte.id}/download?type=xml`} className="flex-1">
                   <Button className="w-full">Descargar XML — Premiere Pro</Button>
                 </a>
               )}
               {corte.edlUrl && (
-                <a href={corte.edlUrl} download={`${corte.nombre}.edl`} className="flex-1">
+                <a href={`/api/cortar/${corte.id}/download?type=edl`} className="flex-1">
                   <Button variant="secondary" className="w-full">Descargar EDL — DaVinci Resolve</Button>
+                </a>
+              )}
+              {corte.capcutUrl && (
+                <a href={`/api/cortar/${corte.id}/download?type=capcut`} className="flex-1">
+                  <Button variant="secondary" className="w-full">Descargar proyecto CapCut</Button>
                 </a>
               )}
             </div>
 
             <div className="space-y-2 text-xs text-gray-500">
               <p>
-                <strong>Premiere Pro:</strong> ve a <em>File → Import</em> y selecciona el
-                XML. Premiere creará una secuencia con los segmentos ya cortados.
+                <strong>Premiere Pro:</strong> descarga el vídeo original y el XML en la
+                misma carpeta. Luego, en Premiere, ve a <em>File → Import</em> y selecciona
+                el XML. La secuencia con los cortes se generará automáticamente; si Premiere
+                pide hacer relink, apunta al vídeo descargado{corte.localFilename ? (
+                  <> (<code className="rounded bg-gray-100 px-1 py-0.5 text-[10px]">{corte.localFilename}</code>)</>
+                ) : null}.
               </p>
               <p>
                 <strong>DaVinci Resolve:</strong> ve a <em>File → Import Timeline → Import EDL</em>,
                 selecciona el EDL y luego re-enlaza el media al footage original.
+              </p>
+              <p>
+                <strong>CapCut Desktop:</strong> descomprime el ZIP en
+                <code className="mx-1 rounded bg-gray-100 px-1 py-0.5 text-[10px]">
+                  ~/Documents/CapCut/User Data/Projects/com.lveditor.draft/{`<NombreCarpeta>`}/
+                </code>
+                (Windows: <code className="rounded bg-gray-100 px-1 py-0.5 text-[10px]">%USERPROFILE%\Documents\CapCut\User Data\Projects\com.lveditor.draft\</code>).
+                Pon el vídeo original dentro de esa misma carpeta. Reabre CapCut y el proyecto aparecerá en la lista de drafts;
+                si el clip está rojo, click derecho → relink media.
               </p>
             </div>
           </CardContent>

@@ -10,7 +10,14 @@ export async function GET(
     const project = await getProject(projectId);
     return NextResponse.json({
       status: project.status,
+      renderMethod: project.renderMethod,
       outputUrl: project.outputUrl ?? null,
+      xmlUrl: project.xmlUrl ?? null,
+      edlUrl: project.edlUrl ?? null,
+      capcutUrl: project.capcutUrl ?? null,
+      cortesAnalysis: project.cortesAnalysis ?? null,
+      keepSegmentsCount: project.keepSegmentsCount ?? null,
+      duracionSeg: project.duracionSeg ?? null,
       errorMessage: project.errorMessage ?? null,
       updatedAt: project.updatedAt.toISOString(),
     });

@@ -11,6 +11,7 @@ export async function uploadToBlob(
     access: "public",
     contentType,
     token: process.env.BLOB_READ_WRITE_TOKEN,
+    allowOverwrite: true,
   });
   return url;
 }

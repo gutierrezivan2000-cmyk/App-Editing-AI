@@ -1,10 +1,12 @@
+import JSZip from "jszip";
 import { inngest } from "../client";
 import { getCorte, updateCorte } from "@/lib/cortes-db";
 import { createPreprocessSandbox, runInSandbox } from "@/lib/sandbox";
-import { detectarSilencios } from "@/lib/ffmpeg";
-import { uploadToBlob } from "@/lib/blob";
-import { generarPremiereXML, type VideoMetadata } from "@/lib/premiere-xml";
+import { detectarSilencios, extraerMetadata } from "@/lib/ffmpeg";
+import { uploadToBlob, downloadFromBlob } from "@/lib/blob";
+import { generarPremiereXML } from "@/lib/premiere-xml";
 import { generarDaVinciEDL } from "@/lib/davinci-edl";
+import { generarCapCutDraft } from "@/lib/capcut-draft";
 
 /**
  * Pipeline simplificado: silencios → XML para Premiere Pro.
@@ -63,8 +65,24 @@ export const cortarSilencios = inngest.createFunction(
 
         const { xml, segments } = generarPremiereXML(exportOpts);
         const { edl } = generarDaVinciEDL(exportOpts);
+        const { draftJson, metaJson, localFilename } = generarCapCutDraft(
+          exportOpts
+        );
 
-        const [xmlUrl, edlUrl] = await Promise.all([
+        // Descargar el video original en paralelo con la generación de los
+        // otros formatos para empaquetarlo dentro del ZIP de CapCut.
+        const videoBuffer = await downloadFromBlob(corte.footageUrl);
+
+        const capcutZip = new JSZip();
+        capcutZip.file("draft_content.json", draftJson);
+        capcutZip.file("draft_meta_info.json", metaJson);
+        capcutZip.file(localFilename, videoBuffer);
+        const capcutBuffer = await capcutZip.generateAsync({
+          type: "nodebuffer",
+          compression: "STORE",
+        });
+
+        const [xmlUrl, edlUrl, capcutUrl] = await Promise.all([
           uploadToBlob(
             `cortes-xml/${corteId}.xml`,
             Buffer.from(xml, "utf8"),
@@ -75,11 +93,17 @@ export const cortarSilencios = inngest.createFunction(
             Buffer.from(edl, "utf8"),
             "text/plain"
           ),
+          uploadToBlob(
+            `cortes-capcut/${corteId}.zip`,
+            capcutBuffer,
+            "application/zip"
+          ),
         ]);
 
         return {
           xmlUrl,
           edlUrl,
+          capcutUrl,
           segmentsCount: segments.length,
           silenciosCount: analisis.silencios.length,
           duracionSeg: analisis.metadata.duracion,
@@ -91,13 +115,19 @@ export const cortarSilencios = inngest.createFunction(
           status: "completed",
           xmlUrl: exportResult.xmlUrl,
           edlUrl: exportResult.edlUrl,
+          capcutUrl: exportResult.capcutUrl,
           segmentsCount: exportResult.segmentsCount,
           silenciosCount: exportResult.silenciosCount,
           duracionSeg: exportResult.duracionSeg,
         })
       );
 
-      return { corteId, xmlUrl: exportResult.xmlUrl, edlUrl: exportResult.edlUrl };
+      return {
+        corteId,
+        xmlUrl: exportResult.xmlUrl,
+        edlUrl: exportResult.edlUrl,
+        capcutUrl: exportResult.capcutUrl,
+      };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await updateCorte(corteId, { status: "error", errorMessage: msg });
@@ -106,38 +136,3 @@ export const cortarSilencios = inngest.createFunction(
   }
 );
 
-/**
- * Extrae width, height, fps y duración usando ffmpeg.
- * ffmpeg -i <file> sin output imprime la info por stderr y sale con código 1.
- */
-async function extraerMetadata(
-  sandbox: Awaited<ReturnType<typeof createPreprocessSandbox>>,
-  videoPath: string
-): Promise<VideoMetadata> {
-  const { stdout } = await runInSandbox(
-    sandbox,
-    `ffmpeg -hide_banner -i "${videoPath}" 2>&1 || true`
-  );
-
-  const sizeMatch = stdout.match(/(\d{2,5})x(\d{2,5})/);
-  const fpsMatch = stdout.match(/(\d+(?:\.\d+)?)\s*(?:fps|tbr)/);
-  const durationMatch = stdout.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
-
-  const width = sizeMatch ? parseInt(sizeMatch[1], 10) : 1920;
-  const height = sizeMatch ? parseInt(sizeMatch[2], 10) : 1080;
-  const fps = fpsMatch ? Math.round(parseFloat(fpsMatch[1])) : 30;
-
-  let duracion = 0;
-  if (durationMatch) {
-    duracion =
-      parseInt(durationMatch[1], 10) * 3600 +
-      parseInt(durationMatch[2], 10) * 60 +
-      parseFloat(durationMatch[3]);
-  }
-
-  if (duracion === 0) {
-    throw new Error("No se pudo extraer la duración del video");
-  }
-
-  return { width, height, fps: fps > 0 ? fps : 30, duracion };
-}

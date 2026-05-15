@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCorte } from "@/lib/cortes-db";
+import { getLocalFilename } from "@/lib/premiere-xml";
 
 export async function GET(
   _req: Request,
@@ -14,6 +15,9 @@ export async function GET(
       status: corte.status,
       xmlUrl: corte.xmlUrl,
       edlUrl: corte.edlUrl,
+      capcutUrl: corte.capcutUrl,
+      footageUrl: corte.footageUrl,
+      localFilename: getLocalFilename(corte.nombre, corte.footageUrl),
       errorMessage: corte.errorMessage,
       silenciosCount: corte.silenciosCount,
       segmentsCount: corte.segmentsCount,

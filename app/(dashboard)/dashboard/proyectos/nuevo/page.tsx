@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 export default function NuevoProyectoPage() {
   const router = useRouter();
   const [footageUrl, setFootageUrl] = useState<string | null>(null);
-  const [renderMethod, setRenderMethod] = useState<"original" | "mirage">("original");
+  const [renderMethod, setRenderMethod] = useState<"original" | "mirage" | "cortes">("cortes");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,9 +94,28 @@ export default function NuevoProyectoPage() {
 
         <Card>
           <CardHeader>
-            <h2 className="text-sm font-semibold text-gray-900">Método de render</h2>
+            <h2 className="text-sm font-semibold text-gray-900">Modo de procesamiento</h2>
           </CardHeader>
           <CardContent className="space-y-3">
+            <label className="flex items-start gap-3 cursor-pointer rounded-lg border p-3 hover:bg-gray-50 transition-colors"
+              style={{ borderColor: renderMethod === "cortes" ? "#1a73e8" : "#e5e7eb", background: renderMethod === "cortes" ? "#eff6ff" : undefined }}>
+              <input
+                type="radio"
+                name="renderMethod"
+                value="cortes"
+                checked={renderMethod === "cortes"}
+                onChange={() => setRenderMethod("cortes")}
+                className="mt-0.5"
+              />
+              <div>
+                <p className="text-sm font-medium text-gray-900">Cortes con IA — pipeline completo</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Whisper transcribe, Claude detecta silencios + errores + repeticiones + muletillas,
+                  ffmpeg corta el vídeo, y Remotion renderiza un MP4 final con subtítulos dinámicos.
+                  Adicionalmente exporta los project files para Premiere, DaVinci Resolve y CapCut Desktop.
+                </p>
+              </div>
+            </label>
             <label className="flex items-start gap-3 cursor-pointer rounded-lg border p-3 hover:bg-gray-50 transition-colors"
               style={{ borderColor: renderMethod === "original" ? "#1a73e8" : "#e5e7eb", background: renderMethod === "original" ? "#eff6ff" : undefined }}>
               <input
@@ -110,7 +129,7 @@ export default function NuevoProyectoPage() {
               <div>
                 <p className="text-sm font-medium text-gray-900">Original — Whisper + Remotion</p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Transcripción con Whisper, Claude decide énfasis y animación, Remotion renderiza subtítulos dinámicos.
+                  Transcripción con Whisper, Claude decide énfasis y animación, Remotion renderiza subtítulos dinámicos sobre un MP4 final.
                 </p>
               </div>
             </label>
@@ -128,7 +147,8 @@ export default function NuevoProyectoPage() {
                 <p className="text-sm font-medium text-gray-900">Mirage — Captions.ai</p>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Subtítulos automáticos vía Captions.ai. Más rápido, sin Whisper ni Remotion. Requiere{" "}
-                  <code className="bg-gray-100 px-1 rounded text-xs">MIRAGE_API_KEY</code> configurada.
+                  <code className="bg-gray-100 px-1 rounded text-xs">MIRAGE_API_KEY</code> y{" "}
+                  <code className="bg-gray-100 px-1 rounded text-xs">MIRAGE_CAPTION_TEMPLATE_ID</code> configuradas.
                   Límite: 50 MB / 1 min / formato 9:16.
                 </p>
               </div>

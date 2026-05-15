@@ -23,6 +23,7 @@
     "@vercel/sandbox": "latest",
     "bcryptjs": "^2.4.3",
     "inngest": "^3.0.0",
+    "jszip": "^3.10.1",
     "next": "^15.0.0",
     "next-auth": "^5.0.0-beta",
     "openai": "^4.50.0",

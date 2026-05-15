@@ -47,9 +47,16 @@ export interface Proyecto {
   footageUrl: string;
   outputUrl?: string;
   status: "pending" | "processing" | "completed" | "error";
-  renderMethod: "original" | "mirage";
+  renderMethod: "original" | "mirage" | "cortes";
   clickupTaskId?: string;
   errorMessage?: string;
+  // Campos del pipeline 'cortes' (IA decide qué cortar, exporta project files)
+  xmlUrl?: string;
+  edlUrl?: string;
+  capcutUrl?: string;
+  cortesAnalysis?: unknown;
+  keepSegmentsCount?: number;
+  duracionSeg?: number;
   createdAt: Date;
   updatedAt: Date;
 }

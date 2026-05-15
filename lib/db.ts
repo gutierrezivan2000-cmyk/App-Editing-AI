@@ -6,7 +6,7 @@ interface CreateProjectInput {
   nombre: string;
   brief: string;
   footageUrl: string;
-  renderMethod?: "original" | "mirage";
+  renderMethod?: "original" | "mirage" | "cortes";
   clickupTaskId?: string;
 }
 
@@ -14,6 +14,12 @@ interface UpdateProjectInput {
   status?: Proyecto["status"];
   outputUrl?: string;
   errorMessage?: string;
+  xmlUrl?: string;
+  edlUrl?: string;
+  capcutUrl?: string;
+  cortesAnalysis?: unknown;
+  keepSegmentsCount?: number;
+  duracionSeg?: number;
 }
 
 function rowToProyecto(row: Record<string, unknown>): Proyecto {
@@ -23,11 +29,23 @@ function rowToProyecto(row: Record<string, unknown>): Proyecto {
     nombre: row.nombre as string,
     brief: row.brief as string,
     footageUrl: row.footage_url as string,
-    outputUrl: row.output_url as string | undefined,
+    outputUrl: (row.output_url as string | null) ?? undefined,
     status: row.status as Proyecto["status"],
     renderMethod: (row.render_method as Proyecto["renderMethod"]) ?? "original",
-    clickupTaskId: row.clickup_task_id as string | undefined,
-    errorMessage: row.error_message as string | undefined,
+    clickupTaskId: (row.clickup_task_id as string | null) ?? undefined,
+    errorMessage: (row.error_message as string | null) ?? undefined,
+    xmlUrl: (row.xml_url as string | null) ?? undefined,
+    edlUrl: (row.edl_url as string | null) ?? undefined,
+    capcutUrl: (row.capcut_url as string | null) ?? undefined,
+    cortesAnalysis: (row.cortes_analysis as unknown) ?? undefined,
+    keepSegmentsCount:
+      row.keep_segments_count !== undefined && row.keep_segments_count !== null
+        ? Number(row.keep_segments_count)
+        : undefined,
+    duracionSeg:
+      row.duracion_seg !== undefined && row.duracion_seg !== null
+        ? Number(row.duracion_seg)
+        : undefined,
     createdAt: new Date(row.created_at as string),
     updatedAt: new Date(row.updated_at as string),
   };
@@ -81,13 +99,23 @@ export async function updateProject(
   id: string,
   patch: UpdateProjectInput
 ): Promise<Proyecto> {
+  const cortesAnalysisJson =
+    patch.cortesAnalysis !== undefined
+      ? JSON.stringify(patch.cortesAnalysis)
+      : null;
   const { rows } = await sql`
     UPDATE proyectos
     SET
-      status        = COALESCE(${patch.status ?? null}, status),
-      output_url    = COALESCE(${patch.outputUrl ?? null}, output_url),
-      error_message = COALESCE(${patch.errorMessage ?? null}, error_message),
-      updated_at    = NOW()
+      status              = COALESCE(${patch.status ?? null}, status),
+      output_url          = COALESCE(${patch.outputUrl ?? null}, output_url),
+      error_message       = COALESCE(${patch.errorMessage ?? null}, error_message),
+      xml_url             = COALESCE(${patch.xmlUrl ?? null}, xml_url),
+      edl_url             = COALESCE(${patch.edlUrl ?? null}, edl_url),
+      capcut_url          = COALESCE(${patch.capcutUrl ?? null}, capcut_url),
+      cortes_analysis     = COALESCE(${cortesAnalysisJson}::jsonb, cortes_analysis),
+      keep_segments_count = COALESCE(${patch.keepSegmentsCount ?? null}, keep_segments_count),
+      duracion_seg        = COALESCE(${patch.duracionSeg ?? null}, duracion_seg),
+      updated_at          = NOW()
     WHERE id = ${id}
     RETURNING *
   `;

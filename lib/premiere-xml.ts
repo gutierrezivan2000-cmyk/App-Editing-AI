@@ -48,6 +48,24 @@ function escapeXml(str: string): string {
 }
 
 /**
+ * Compute the local filename users should save the original video as,
+ * so Premiere can find the media when importing the XML. The XML's
+ * pathurl, the proxy endpoint's Content-Disposition, and the user's
+ * file on disk must all use this name for the relink to be automatic.
+ */
+export function getLocalFilename(videoName: string, videoUrl: string): string {
+  const pathPart = videoUrl.split("?")[0];
+  const urlExt = pathPart.includes(".") ? pathPart.split(".").pop() : null;
+  const safeExt = urlExt && /^[A-Za-z0-9]{2,5}$/.test(urlExt) ? urlExt : "mp4";
+  const cleanName =
+    videoName
+      .replace(/[^\w\s.-]/g, "")
+      .trim()
+      .replace(/\s+/g, "_") || "video";
+  return `${cleanName}.${safeExt}`;
+}
+
+/**
  * Generate a Final Cut Pro 7 XML (xmeml v5) that Premiere Pro
  * can import via File → Import. The timeline contains one clipitem
  * per keep-segment, placed sequentially.
@@ -68,7 +86,8 @@ export function generarPremiereXML(opts: {
   const sourceDurationFrames = secsToFrames(duracion);
 
   const fileName = escapeXml(videoName);
-  const pathUrl = escapeXml(videoUrl);
+  const localFilename = getLocalFilename(videoName, videoUrl);
+  const pathUrl = escapeXml(`file://localhost/${encodeURI(localFilename)}`);
   const sequenceNameXml = escapeXml(seqName);
 
   // Each segment is placed sequentially on the timeline.

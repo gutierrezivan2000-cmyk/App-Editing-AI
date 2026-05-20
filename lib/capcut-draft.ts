@@ -42,7 +42,9 @@ export function generarCapCutDraft(opts: {
   localFilename: string;
 } {
   const { videoUrl, videoName, metadata, silencios, subtitulos } = opts;
-  const { width, height, fps, duracion } = metadata;
+  const { width, height, duracion } = metadata;
+  // CapCut espera fps entero en `fps` y en el canvas; NTSC -> entero.
+  const fps = Math.max(1, Math.round(metadata.fps));
 
   const segments = calcularKeepSegments(silencios, duracion);
   const localFilename = getLocalFilename(videoName, videoUrl);

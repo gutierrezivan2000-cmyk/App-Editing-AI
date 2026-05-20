@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
+import { Logo } from "@/components/ui/Logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,15 +34,20 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-indigo-600">VideoIA Agency</h1>
-          <p className="mt-2 text-sm text-gray-500">Inicia sesión para continuar</p>
+    <div className="flex min-h-full items-center justify-center bg-gradient-to-b from-gray-50 via-gray-50 to-indigo-50/40 px-4 py-12">
+      <div className="w-full max-w-sm space-y-7">
+        <div className="flex flex-col items-center text-center">
+          <Logo variant="stacked" size="md" />
+          <p className="mt-3 text-sm text-gray-500">
+            Iniciá sesión para continuar
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 rounded-xl bg-white p-8 shadow-sm border border-gray-200">
-          <div className="space-y-1">
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-4 rounded-xl border border-gray-200 bg-white p-7 shadow-sm"
+        >
+          <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
@@ -50,9 +56,10 @@ export default function LoginPage() {
               autoComplete="email"
               required
               autoFocus
+              placeholder="tu@email.com"
             />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <Label htmlFor="password">Contraseña</Label>
             <Input
               id="password"
@@ -60,22 +67,28 @@ export default function LoginPage() {
               type="password"
               autoComplete="current-password"
               required
+              placeholder="••••••••"
             />
           </div>
           {error && (
-            <p className="text-sm text-red-600">{error}</p>
+            <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
           )}
           <Button type="submit" loading={loading} className="w-full">
             Entrar
           </Button>
         </form>
 
-        <div className="text-center text-sm text-gray-600">
-          ¿No tienes cuenta?{" "}
-          <Link href="/signup" className="font-medium text-indigo-600 hover:text-indigo-500">
-            Regístrate aquí
+        <p className="text-center text-sm text-gray-600">
+          ¿No tenés cuenta?{" "}
+          <Link
+            href="/signup"
+            className="font-medium text-indigo-600 hover:text-indigo-500"
+          >
+            Registrate aquí
           </Link>
-        </div>
+        </p>
       </div>
     </div>
   );

@@ -28,10 +28,24 @@ const defaultProps: RenderInputProps = {
   enfasisPalabras: [],
 };
 
+type FormatoVideo = RenderInputProps["clienteProfile"]["exportacion"]["formatos"][number];
+
+// Mapeo formato → dimensiones (9:16 vertical, 1:1 square, 16:9 landscape).
+// Tomamos el primer formato declarado en el perfil del cliente.
+const DIMS_BY_FORMAT: Record<FormatoVideo, { width: number; height: number }> = {
+  "9:16": { width: 1080, height: 1920 },
+  "1:1": { width: 1080, height: 1080 },
+  "16:9": { width: 1920, height: 1080 },
+};
+
 export const RemotionRoot: React.FC = () => (
   <Composition
     id="VideoBase"
     component={VideoBase as unknown as React.ComponentType<Record<string, unknown>>}
+    // Estos son SOLO defaults para el preview en Remotion Studio. El render
+    // real (renderMediaOnLambda / @remotion/vercel) usa lo que devuelva
+    // `calculateMetadata`, que computa fps + duración + dimensiones desde
+    // las props efectivas.
     durationInFrames={900}
     fps={30}
     width={1080}
@@ -41,8 +55,14 @@ export const RemotionRoot: React.FC = () => (
       const p = props as unknown as RenderInputProps;
       const last = p.transcripcion[p.transcripcion.length - 1];
       const fps = p.clienteProfile?.exportacion?.fps ?? 30;
-      const durationInFrames = Math.max(1, Math.ceil((last?.end ?? 30) * fps));
-      return { durationInFrames, fps };
+      // Si no hay transcripción no podemos calcular duración real; usamos
+      // un default conservador de 10 s (era 30 s, que renderizaba 30 s de
+      // negro innecesarios).
+      const lastEnd = last?.end ?? 10;
+      const durationInFrames = Math.max(1, Math.ceil(lastEnd * fps));
+      const format = p.clienteProfile?.exportacion?.formatos?.[0] ?? "9:16";
+      const dims = DIMS_BY_FORMAT[format] ?? DIMS_BY_FORMAT["9:16"];
+      return { durationInFrames, fps, width: dims.width, height: dims.height };
     }}
   />
 );

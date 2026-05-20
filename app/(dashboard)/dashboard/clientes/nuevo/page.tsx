@@ -1,9 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/dashboard/Header";
 import { ClienteForm } from "@/components/clientes/ClienteForm";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import type { ClienteProfile } from "@/types";
 
 export default function NuevoClientePage() {
@@ -23,16 +23,25 @@ export default function NuevoClientePage() {
   };
 
   return (
-    <div className="space-y-6 p-4 sm:p-6">
-      <Header title="Nuevo cliente" />
-      <Card className="max-w-2xl">
-        <CardHeader>
-          <h2 className="text-sm font-semibold text-gray-900">Perfil del cliente</h2>
-        </CardHeader>
-        <CardContent>
+    <div className="flex flex-col">
+      <Header
+        title="Nuevo cliente"
+        description="Configurá el brand-kit: tipografías, colores, animación de subtítulos y formato de exportación."
+        actions={
+          <Link
+            href="/dashboard/clientes"
+            className="text-sm font-medium text-gray-500 hover:text-gray-900"
+          >
+            ← Cancelar
+          </Link>
+        }
+      />
+
+      <div className="p-4 sm:p-6 lg:p-8">
+        <div className="mx-auto max-w-3xl rounded-xl border border-gray-200 bg-white p-6 sm:p-8">
           <ClienteForm onSave={handleSave} />
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

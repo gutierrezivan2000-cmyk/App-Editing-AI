@@ -2,7 +2,12 @@ import JSZip from "jszip";
 import { inngest } from "../client";
 import { getProject, updateProject } from "@/lib/db";
 import { getClienteProfile } from "@/lib/clientes";
-import { createPreprocessSandbox, runInSandbox } from "@/lib/sandbox";
+import {
+  createPreprocessSandbox,
+  downloadInSandbox,
+  isNetworkError,
+  runInSandbox,
+} from "@/lib/sandbox";
 import {
   detectarSilencios,
   ejecutarFFmpegCommands,
@@ -64,9 +69,10 @@ export const procesarCortesProyecto = inngest.createFunction(
         async () => {
           const sandbox = await createPreprocessSandbox();
           try {
-            const dl = await runInSandbox(
+            const dl = await downloadInSandbox(
               sandbox,
-              `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`
+              project.footageUrl,
+              "/tmp/input.mp4"
             );
             if (dl.exitCode !== 0) {
               throw new Error(
@@ -115,6 +121,12 @@ export const procesarCortesProyecto = inngest.createFunction(
         );
       });
 
+      // Subtítulos efectivos = override del proyecto encima del default del cliente.
+      const subtitulosEfectivos = {
+        ...cliente.subtitulos,
+        ...(project.subtitulosOverride ?? {}),
+      };
+
       // Claude analiza la transcripción + silencios → segmentos a cortar +
       // palabras de énfasis + animación recomendada.
       const analisis = await step.run("claude-cortes", async () => {
@@ -125,7 +137,7 @@ export const procesarCortesProyecto = inngest.createFunction(
           silencios,
           project.brief,
           metadata.duracion,
-          cliente.subtitulos.animacion
+          subtitulosEfectivos.animacion
         );
       });
 
@@ -178,7 +190,7 @@ export const procesarCortesProyecto = inngest.createFunction(
           ...exportOpts,
           subtitulos: {
             transcripcion: transcripcionAjustada,
-            config: cliente.subtitulos,
+            config: subtitulosEfectivos,
           },
         });
 
@@ -230,9 +242,10 @@ export const procesarCortesProyecto = inngest.createFunction(
 
         const sandbox = await createPreprocessSandbox();
         try {
-          const dl = await runInSandbox(
+          const dl = await downloadInSandbox(
             sandbox,
-            `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`
+            project.footageUrl,
+            "/tmp/input.mp4"
           );
           if (dl.exitCode !== 0) {
             throw new Error(
@@ -264,9 +277,9 @@ export const procesarCortesProyecto = inngest.createFunction(
           clienteProfile: {
             ...cliente,
             subtitulos: {
-              ...cliente.subtitulos,
+              ...subtitulosEfectivos,
               animacion:
-                analisis.animacionOverride ?? cliente.subtitulos.animacion,
+                analisis.animacionOverride ?? subtitulosEfectivos.animacion,
             },
           },
           enfasisPalabras: analisis.enfasisPalabras,
@@ -294,7 +307,10 @@ export const procesarCortesProyecto = inngest.createFunction(
         outputUrl: renderResult.url,
       };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const msg = isNetworkError(err)
+        ? `Conexión con Vercel Sandbox interrumpida después de varios reintentos. Probable problema de red temporal — dale Reintentar en unos segundos. (${rawMsg.slice(0, 100)})`
+        : rawMsg;
       await updateProject(projectId, { status: "error", errorMessage: msg });
       throw err;
     }

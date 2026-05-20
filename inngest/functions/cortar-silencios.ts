@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { inngest } from "../client";
 import { getCorte, updateCorte } from "@/lib/cortes-db";
-import { createPreprocessSandbox, runInSandbox } from "@/lib/sandbox";
+import { createPreprocessSandbox, downloadInSandbox } from "@/lib/sandbox";
 import { detectarSilencios, extraerMetadata } from "@/lib/ffmpeg";
 import { uploadToBlob, downloadFromBlob } from "@/lib/blob";
 import { generarPremiereXML } from "@/lib/premiere-xml";
@@ -32,9 +32,10 @@ export const cortarSilencios = inngest.createFunction(
       const analisis = await step.run("analyze-footage", async () => {
         const sandbox = await createPreprocessSandbox();
         try {
-          const dl = await runInSandbox(
+          const dl = await downloadInSandbox(
             sandbox,
-            `curl -fsSL "${corte.footageUrl}" -o /tmp/input.mp4`
+            corte.footageUrl,
+            "/tmp/input.mp4"
           );
           if (dl.exitCode !== 0) {
             throw new Error(`Descarga fallida: ${dl.stderr.slice(-300)}`);

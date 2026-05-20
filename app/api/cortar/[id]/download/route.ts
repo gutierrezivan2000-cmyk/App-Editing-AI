@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCorte } from "@/lib/cortes-db";
 import { getLocalFilename } from "@/lib/premiere-xml";
+import { requireAuth } from "@/lib/api-auth";
 
 type DownloadType = "xml" | "edl" | "capcut" | "footage";
 
@@ -23,6 +24,8 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireAuth();
+  if (session instanceof NextResponse) return session;
   const { id } = await params;
   const url = new URL(req.url);
   const type = url.searchParams.get("type");

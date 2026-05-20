@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { getClienteProfile } from "@/lib/clientes";
 import { upsertCliente } from "@/lib/db";
+import { requireAuth } from "@/lib/api-auth";
 import type { ClienteProfile } from "@/types";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireAuth();
+  if (session instanceof NextResponse) return session;
   try {
     const { id } = await params;
     const profile = await getClienteProfile(id);
@@ -21,6 +24,8 @@ export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireAuth();
+  if (session instanceof NextResponse) return session;
   try {
     const { id } = await params;
     const body = (await req.json()) as ClienteProfile;

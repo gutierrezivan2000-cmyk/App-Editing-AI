@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 import { createCorte, getAllCortes } from "@/lib/cortes-db";
 import { inngest } from "@/inngest/client";
 import { ratelimit } from "@/lib/ratelimit";
+import { requireAuth } from "@/lib/api-auth";
 
 export async function POST(req: Request) {
   try {
+    const session = await requireAuth();
+    if (session instanceof NextResponse) return session;
+
     if (ratelimit) {
       const ip = req.headers.get("x-forwarded-for") ?? "anon";
       const { success } = await ratelimit.limit(`cortar:${ip}`);
@@ -52,6 +56,8 @@ export async function POST(req: Request) {
 
 export async function GET() {
   try {
+    const session = await requireAuth();
+    if (session instanceof NextResponse) return session;
     const cortes = await getAllCortes();
     return NextResponse.json({ cortes });
   } catch (err) {

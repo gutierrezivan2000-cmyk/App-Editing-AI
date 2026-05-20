@@ -27,6 +27,7 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env*.bak
 
 # vercel
 .vercel
@@ -35,3 +36,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# operational logs from PM2-managed scripts (windows dev only)
+scripts/*.log
+.pm2-logs/

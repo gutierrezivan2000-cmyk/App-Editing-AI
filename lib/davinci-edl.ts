@@ -5,11 +5,21 @@ export type { KeepSegment };
 
 /**
  * Convert total seconds to SMPTE timecode string: HH:MM:SS:FF
+ *
+ * Importante: EDL CMX 3600 (non-drop-frame) requiere `fps` ENTERO en los
+ * cálculos de frames. Cuando el material viene a 29.97 / 59.94 / 23.976
+ * (NTSC) hay que redondear al entero más cercano (30 / 60 / 24). Si no se
+ * redondea, `totalFrames % fps` devuelve floats como `12.345` y `padStart`
+ * los renderiza como `"12.345"` (6 chars), rompiendo el parseo en DaVinci.
+ *
+ * El drift que introduce el redondeo es aceptable porque NDF EDL ignora el
+ * 1‰ de los timecodes NTSC por diseño; el editor relinkea al material real.
  */
 function secToTimecode(secs: number, fps: number): string {
-  const totalFrames = Math.round(secs * fps);
-  const frames = totalFrames % fps;
-  const totalSeconds = Math.floor(totalFrames / fps);
+  const intFps = Math.max(1, Math.round(fps));
+  const totalFrames = Math.round(secs * intFps);
+  const frames = totalFrames % intFps;
+  const totalSeconds = Math.floor(totalFrames / intFps);
   const seconds = totalSeconds % 60;
   const totalMinutes = Math.floor(totalSeconds / 60);
   const minutes = totalMinutes % 60;

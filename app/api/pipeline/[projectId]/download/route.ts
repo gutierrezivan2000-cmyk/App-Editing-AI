@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { getProject } from "@/lib/db";
 import { getLocalFilename } from "@/lib/premiere-xml";
+import { requireAuth } from "@/lib/api-auth";
 
-type DownloadType = "xml" | "edl" | "capcut" | "footage" | "output";
+type DownloadType = "xml" | "edl" | "capcut" | "srt" | "footage" | "output";
 
 function isDownloadType(value: string | null): value is DownloadType {
   return (
     value === "xml" ||
     value === "edl" ||
     value === "capcut" ||
+    value === "srt" ||
     value === "footage" ||
     value === "output"
   );
@@ -24,20 +26,23 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
+  const session = await requireAuth();
+  if (session instanceof NextResponse) return session;
+
   const { projectId } = await params;
   const url = new URL(req.url);
   const type = url.searchParams.get("type");
 
   if (!isDownloadType(type)) {
     return NextResponse.json(
-      { error: "Parámetro 'type' debe ser xml | edl | capcut | footage | output" },
+      { error: "Parámetro 'type' debe ser xml | edl | capcut | srt | footage | output" },
       { status: 400 }
     );
   }
 
   let project;
   try {
-    project = await getProject(projectId);
+    project = await getProject(projectId, session.user.id);
   } catch {
     return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
   }
@@ -54,6 +59,9 @@ export async function GET(
   } else if (type === "capcut") {
     blobUrl = project.capcutUrl;
     filename = `${project.nombre}_CapCut.zip`;
+  } else if (type === "srt") {
+    blobUrl = project.srtUrl;
+    filename = `${project.nombre}.srt`;
   } else if (type === "output") {
     blobUrl = project.outputUrl;
     filename = `${project.nombre}_final.mp4`;

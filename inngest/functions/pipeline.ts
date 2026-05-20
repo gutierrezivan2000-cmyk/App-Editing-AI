@@ -1,7 +1,12 @@
 import { inngest } from "../client";
 import { getProject, updateProject } from "@/lib/db";
 import { getClienteProfile } from "@/lib/clientes";
-import { createPreprocessSandbox, runInSandbox } from "@/lib/sandbox";
+import {
+  createPreprocessSandbox,
+  downloadInSandbox,
+  isNetworkError,
+  runInSandbox,
+} from "@/lib/sandbox";
 import { detectarSilencios, ejecutarFFmpegCommands } from "@/lib/ffmpeg";
 import { transcribirConWhisperDesdeUrl } from "@/lib/openai";
 import { buildOrchestrationPrompt, callClaude } from "@/lib/anthropic";
@@ -38,9 +43,10 @@ export const procesarVideo = inngest.createFunction(
       const { silencios, audioUrl } = await step.run("analyze-footage", async () => {
         const sandbox = await createPreprocessSandbox();
         try {
-          const dl = await runInSandbox(
+          const dl = await downloadInSandbox(
             sandbox,
-            `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`
+            project.footageUrl,
+            "/tmp/input.mp4"
           );
           if (dl.exitCode !== 0) {
             throw new Error(`Download failed (curl exit ${dl.exitCode}): ${dl.stderr.slice(-300)}`);
@@ -118,9 +124,10 @@ export const procesarVideo = inngest.createFunction(
 
         const sandbox = await createPreprocessSandbox();
         try {
-          const dl = await runInSandbox(
+          const dl = await downloadInSandbox(
             sandbox,
-            `curl -fsSL "${project.footageUrl}" -o /tmp/input.mp4`
+            project.footageUrl,
+            "/tmp/input.mp4"
           );
           if (dl.exitCode !== 0) {
             throw new Error(`Download failed (curl exit ${dl.exitCode}): ${dl.stderr.slice(-300)}`);
@@ -166,7 +173,10 @@ export const procesarVideo = inngest.createFunction(
 
       return { projectId, outputUrl };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const msg = isNetworkError(err)
+        ? `Conexión con Vercel Sandbox interrumpida después de varios reintentos. Probable problema de red temporal — dale Reintentar en unos segundos. (${rawMsg.slice(0, 100)})`
+        : rawMsg;
       await updateProject(projectId, { status: "error", errorMessage: msg });
       throw err;
     }

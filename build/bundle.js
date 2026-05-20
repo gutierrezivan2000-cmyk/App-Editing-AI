@@ -2027,7 +2027,23 @@ const VideoBase = ({
       w.texto.toLowerCase().replace(/[.,!?¿¡:;"'()]/g, "")
     )
   }));
-  return /* @__PURE__ */ React.createElement(esm/* AbsoluteFill */.H1, { style: { backgroundColor: "black" } }, videoUrl ? /* @__PURE__ */ React.createElement(esm/* OffthreadVideo */.pe, { src: videoUrl }) : null, /* @__PURE__ */ React.createElement(
+  return /* @__PURE__ */ React.createElement(esm/* AbsoluteFill */.H1, { style: { backgroundColor: "black" } }, videoUrl ? (
+    // objectFit:"cover" llena todo el canvas manteniendo aspect ratio
+    // (croppea si hace falta). Antes sin estilo, OffthreadVideo se
+    // renderizaba en su tamano intrinseco HTML (300x150) y quedaba
+    // como sello chico arriba a la izquierda del canvas 1080x1920.
+    /* @__PURE__ */ React.createElement(
+      esm/* OffthreadVideo */.pe,
+      {
+        src: videoUrl,
+        style: {
+          width: "100%",
+          height: "100%",
+          objectFit: "cover"
+        }
+      }
+    )
+  ) : null, /* @__PURE__ */ React.createElement(
     SubtitulosDinamicos,
     {
       transcripcion: transcripcionConEnfasis,
@@ -2067,6 +2083,11 @@ const defaultProps = {
   },
   enfasisPalabras: []
 };
+const DIMS_BY_FORMAT = {
+  "9:16": { width: 1080, height: 1920 },
+  "1:1": { width: 1080, height: 1080 },
+  "16:9": { width: 1920, height: 1080 }
+};
 const RemotionRoot = () => /* @__PURE__ */ react.createElement(
   esm/* Composition */.BO,
   {
@@ -2078,12 +2099,15 @@ const RemotionRoot = () => /* @__PURE__ */ react.createElement(
     height: 1920,
     defaultProps,
     calculateMetadata: ({ props }) => {
-      var _a, _b;
+      var _a, _b, _c, _d, _e;
       const p = props;
       const last = p.transcripcion[p.transcripcion.length - 1];
       const fps = ((_b = (_a = p.clienteProfile) == null ? void 0 : _a.exportacion) == null ? void 0 : _b.fps) ?? 30;
-      const durationInFrames = Math.max(1, Math.ceil(((last == null ? void 0 : last.end) ?? 30) * fps));
-      return { durationInFrames, fps };
+      const lastEnd = (last == null ? void 0 : last.end) ?? 10;
+      const durationInFrames = Math.max(1, Math.ceil(lastEnd * fps));
+      const format = ((_e = (_d = (_c = p.clienteProfile) == null ? void 0 : _c.exportacion) == null ? void 0 : _d.formatos) == null ? void 0 : _e[0]) ?? "9:16";
+      const dims = DIMS_BY_FORMAT[format] ?? DIMS_BY_FORMAT["9:16"];
+      return { durationInFrames, fps, width: dims.width, height: dims.height };
     }
   }
 );

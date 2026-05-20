@@ -1,12 +1,92 @@
 @import "tailwindcss";
 
 @theme {
+  /* Tipografias — Geist + Mono cargadas en app/layout.tsx como CSS vars. */
+  --font-sans:
+    var(--font-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+
+  /* Paleta — indigo es nuestro brand primario. */
   --color-indigo-50: #eef2ff;
+  --color-indigo-100: #e0e7ff;
+  --color-indigo-500: #6366f1;
   --color-indigo-600: #4f46e5;
   --color-indigo-700: #4338ca;
+  --color-indigo-900: #312e81;
 }
 
 html,
 body {
   height: 100%;
+}
+
+/* Tabular nums por defecto en monospace — alinea timestamps, contadores,
+   tablas de KPIs. Geist Mono ya tiene buen tabular pero lo forzamos. */
+.font-mono,
+[class*="tabular-nums"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbar finita y discreta (Chromium-based browsers). */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Scrollbar específico para zonas dark del editor — barra muy sutil sobre
+   fondo zinc-950, casi invisible hasta hover. */
+.scrollbar-dark {
+  scrollbar-color: #3f3f46 transparent; /* Firefox */
+  scrollbar-width: thin;
+}
+.scrollbar-dark::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-dark::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background: #27272a; /* zinc-800 */
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46; /* zinc-700 */
+  background-clip: content-box;
+}
+
+/* Flash de "acabo de cambiar" — se aplica brevemente a elementos cuyo
+   contenido acaba de modificarse, para que el usuario vea el cambio
+   reflejado en vivo (no solo en el panel donde está editando). */
+@keyframes editor-flash {
+  0%   { background-color: rgba(251, 191, 36, 0.55); }
+  100% { background-color: transparent; }
+}
+.editor-flash {
+  animation: editor-flash 0.6s ease-out;
+}
+
+/* Pulse del cursor del timeline para que sea más obvio que está
+   sincronizado al player. */
+@keyframes timeline-cursor-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+}
+.timeline-cursor-pulse {
+  animation: timeline-cursor-pulse 2s ease-in-out infinite;
 }

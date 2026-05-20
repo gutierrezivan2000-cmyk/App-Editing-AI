@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { getCorte } from "@/lib/cortes-db";
 import { getLocalFilename } from "@/lib/premiere-xml";
+import { requireAuth } from "@/lib/api-auth";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await requireAuth();
+    if (session instanceof NextResponse) return session;
     const { id } = await params;
     const corte = await getCorte(id);
     return NextResponse.json({

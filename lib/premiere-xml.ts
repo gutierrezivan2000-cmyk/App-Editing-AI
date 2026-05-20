@@ -52,6 +52,10 @@ function escapeXml(str: string): string {
  * so Premiere can find the media when importing the XML. The XML's
  * pathurl, the proxy endpoint's Content-Disposition, and the user's
  * file on disk must all use this name for the relink to be automatic.
+ *
+ * If `videoName` already ends with a valid extension (e.g. "IMG_6520.MOV"
+ * for a multi-clip upload), the URL extension is NOT appended again —
+ * we'd end up with "IMG_6520.MOV.MOV" which CapCut/Premiere choke on.
  */
 export function getLocalFilename(videoName: string, videoUrl: string): string {
   const pathPart = videoUrl.split("?")[0];
@@ -62,6 +66,11 @@ export function getLocalFilename(videoName: string, videoUrl: string): string {
       .replace(/[^\w\s.-]/g, "")
       .trim()
       .replace(/\s+/g, "_") || "video";
+  // Detect any existing extension on the clean name (2-5 alphanumeric chars
+  // at the end). Avoid duplicating it.
+  if (/\.[A-Za-z0-9]{2,5}$/.test(cleanName)) {
+    return cleanName;
+  }
   return `${cleanName}.${safeExt}`;
 }
 
@@ -78,7 +87,11 @@ export function generarPremiereXML(opts: {
   sequenceName?: string;
 }): { xml: string; segments: KeepSegment[] } {
   const { videoUrl, videoName, metadata, silencios } = opts;
-  const { width, height, fps, duracion } = metadata;
+  const { width, height, duracion } = metadata;
+  // Premiere `<timebase>` y los `<frame>` correspondientes son enteros. NTSC
+  // 29.97 / 23.976 / 59.94 deben redondearse a 30 / 24 / 60 — el drift se
+  // compensa al relinkear el media original.
+  const fps = Math.max(1, Math.round(metadata.fps));
   const seqName = opts.sequenceName ?? `${videoName}_sin_silencios`;
 
   const segments = calcularKeepSegments(silencios, duracion);

@@ -12,6 +12,7 @@ interface CreateProjectInput {
   guion?: string;
   subtitulosOverride?: Proyecto["subtitulosOverride"];
   renderSubtitulos?: boolean;
+  incluirClipsEnZip?: boolean;
   /**
    * ID del usuario dueño del proyecto. Requerido en runtime — las route
    * handlers lo extraen de `requireAuth()`. Lo dejo opcional en el tipo
@@ -69,6 +70,7 @@ function rowToProyecto(row: Record<string, unknown>): Proyecto {
       (row.subtitulos_override as Proyecto["subtitulosOverride"]) ?? undefined,
     planMulticlip: (row.plan_multiclip as Proyecto["planMulticlip"]) ?? undefined,
     renderSubtitulos: (row.render_subtitulos as boolean | null) ?? false,
+    incluirClipsEnZip: (row.incluir_clips_en_zip as boolean | null) ?? false,
     progress: (row.progress as Proyecto["progress"]) ?? undefined,
     createdAt: new Date(row.created_at as string),
     updatedAt: new Date(row.updated_at as string),
@@ -83,7 +85,8 @@ export async function createProject(input: CreateProjectInput): Promise<Proyecto
   const { rows } = await sql`
     INSERT INTO proyectos (
       cliente_id, nombre, brief, footage_url, render_method, clickup_task_id,
-      clips, guion, subtitulos_override, user_id, render_subtitulos
+      clips, guion, subtitulos_override, user_id, render_subtitulos,
+      incluir_clips_en_zip
     )
     VALUES (
       ${input.clienteId},
@@ -96,7 +99,8 @@ export async function createProject(input: CreateProjectInput): Promise<Proyecto
       ${input.guion ?? null},
       ${subsJson}::jsonb,
       ${input.userId ?? null},
-      ${input.renderSubtitulos ?? false}
+      ${input.renderSubtitulos ?? false},
+      ${input.incluirClipsEnZip ?? false}
     )
     RETURNING *
   `;

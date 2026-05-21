@@ -5,6 +5,7 @@ import { getClienteProfile } from "@/lib/clientes";
 import {
   createPreprocessSandbox,
   downloadInSandbox,
+  downloadInSandboxBatch,
   isNetworkError,
   runInSandbox,
 } from "@/lib/sandbox";
@@ -14,6 +15,7 @@ import {
 } from "@/lib/ffmpeg";
 import {
   downloadFromBlob,
+  publicBlobUrl,
   uploadFromSandboxToBlob,
   uploadToBlob,
 } from "@/lib/blob";
@@ -36,10 +38,44 @@ import {
   type ClipForExport,
 } from "@/lib/multiclip-exports";
 import { generarSRT } from "@/lib/srt";
+import {
+  generateClipsDownloadBatchScript,
+  generateClipsDownloadShellScript,
+  generateClipsReadme,
+} from "@/lib/clips-bundle";
 import { renderizarVideoFinal } from "@/lib/render";
 import { advanceToStep, startHeartbeat, updateProgress } from "@/lib/pipeline-progress";
 import { preflightMulticlip } from "@/lib/preflight";
 import type { ClipMultiSource, WordTimestamp } from "@/types";
+
+/**
+ * Descarga N clips desde Vercel Blob a Node con concurrencia limitada.
+ * Antes hacíamos esto secuencial — 16 clips × 60s c/u = 16 min. Con
+ * concurrencia 4 cae a ~4 min sin saturar memoria ni la conexion.
+ *
+ * Importante: mantiene el orden del array de entrada (los buffers salen
+ * indexed igual que los clips).
+ */
+async function downloadClipsParallel<T extends { url: string }>(
+  items: T[],
+  concurrency: number,
+): Promise<Buffer[]> {
+  const results: Buffer[] = new Array(items.length);
+  let nextIdx = 0;
+  async function worker() {
+    while (true) {
+      const idx = nextIdx++;
+      if (idx >= items.length) return;
+      results[idx] = await downloadFromBlob(items[idx].url);
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return results;
+}
 
 /**
  * Pipeline multi-clip: N clips → analizar cada uno (metadata + Whisper) en
@@ -91,6 +127,14 @@ export const procesarMulticlipProyecto = inngest.createFunction(
       );
 
       // ── 1. Analizar todos los clips en un solo sandbox (metadata + audio) ──
+      //
+      // Estrategia para ser rapido:
+      //   a) Descargar TODOS los clips en paralelo (xargs -P 4 dentro del
+      //      sandbox) — antes era secuencial, lo cual para 16 clips de 60MB
+      //      tomaba 8-12 min. Paralelo: 2-3 min.
+      //   b) Loop secuencial para metadata + extraer audio + upload audio,
+      //      porque cada ffmpeg agarra CPU y los upload mp3 son chicos.
+      //      Total: ~10s por clip = 2-3 min para 16 clips.
       const clipAnalysis = await step.run("analyze-clips", async () => {
         await advanceToStep(
           projectId,
@@ -113,26 +157,41 @@ export const procesarMulticlipProyecto = inngest.createFunction(
           }> = [];
 
           const total = project.clips!.length;
+
+          // a) Descarga PARALELA de todos los clips.
+          await updateProgress(projectId, {
+            step: 0,
+            label: "Análisis de cada clip (metadata + audio)",
+            detail: `Descargando ${total} clips en paralelo (concurrencia 4)`,
+            startedAt: new Date().toISOString(),
+            percent: 5,
+          });
+          const dl = await downloadInSandboxBatch(
+            sandbox,
+            project.clips!.map((c, i) => ({
+              url: c.url,
+              destPath: `/tmp/clip_${i}.mp4`,
+            })),
+            4,
+          );
+          if (dl.exitCode !== 0) {
+            throw new Error(
+              `Descarga paralela de clips fallida: ${dl.stderr.slice(-500)}`,
+            );
+          }
+
+          // b) Loop secuencial: metadata + audio + upload audio.
           for (let i = 0; i < total; i++) {
             const c = project.clips![i];
-            // Reportar progreso ANTES de cada iteracion. La UI ve
-            // "Procesando clip 3 de 6" en vivo.
             await updateProgress(projectId, {
               step: 0,
               label: "Análisis de cada clip (metadata + audio)",
-              detail: `Procesando clip ${i + 1} de ${total} (${c.name})`,
+              detail: `Procesando audio ${i + 1} / ${total} (${c.name})`,
               startedAt: new Date().toISOString(),
-              percent: Math.round((i / total) * 100),
+              percent: 25 + Math.round((i / total) * 75),
             });
 
             const inputPath = `/tmp/clip_${i}.mp4`;
-            const dl = await downloadInSandbox(sandbox, c.url, inputPath);
-            if (dl.exitCode !== 0) {
-              throw new Error(
-                `Descarga del clip ${i} fallida: ${dl.stderr.slice(-300)}`
-              );
-            }
-
             const metadata = await extraerMetadata(sandbox, inputPath);
 
             const audioPath = `/tmp/audio_${i}.mp3`;
@@ -171,6 +230,11 @@ export const procesarMulticlipProyecto = inngest.createFunction(
       });
 
       // ── 2. Transcribir cada clip con Whisper, guardar el JSON unificado ──
+      //
+      // Whisper API soporta concurrencia tranquila — el rate limit de OpenAI
+      // por defecto es 50 req/min para Whisper, asi que con 3 paralelos
+      // estamos lejos del limite. Para 16 clips, esto baja el tiempo de 3-5
+      // min a ~1-2 min sin tocar el rate limit.
       const transcripcionesUrl = await step.run("transcribe-clips", async () => {
         await advanceToStep(
           projectId,
@@ -179,20 +243,38 @@ export const procesarMulticlipProyecto = inngest.createFunction(
           `0 / ${clipAnalysis.length} clips`,
         );
         const stopHb = startHeartbeat(projectId);
+        const WHISPER_CONCURRENCY = 3;
         try {
-          const transcripciones: WordTimestamp[][] = [];
-          for (let i = 0; i < clipAnalysis.length; i++) {
-            const c = clipAnalysis[i];
-            await updateProgress(projectId, {
-              step: 1,
-              label: "Transcripción Whisper de cada clip",
-              detail: `Transcribiendo clip ${i + 1} de ${clipAnalysis.length} (${c.name})`,
-              startedAt: new Date().toISOString(),
-              percent: Math.round((i / clipAnalysis.length) * 100),
-            });
-            const words = await transcribirConWhisperDesdeUrl(c.audioUrl);
-            transcripciones.push(words);
+          const transcripciones: WordTimestamp[][] = new Array(
+            clipAnalysis.length,
+          );
+          let nextIdx = 0;
+          let completed = 0;
+          async function worker() {
+            while (true) {
+              const idx = nextIdx++;
+              if (idx >= clipAnalysis.length) return;
+              const c = clipAnalysis[idx];
+              const words = await transcribirConWhisperDesdeUrl(c.audioUrl);
+              transcripciones[idx] = words;
+              completed++;
+              // Progress update por cada clip que termina. Como vienen en
+              // paralelo, mostramos "X/N" en vez de el index del clip
+              // actual (que ya no significa nada con concurrencia).
+              await updateProgress(projectId, {
+                step: 1,
+                label: "Transcripción Whisper de cada clip",
+                detail: `Transcritos ${completed} / ${clipAnalysis.length} clips (concurrencia ${WHISPER_CONCURRENCY})`,
+                startedAt: new Date().toISOString(),
+                percent: Math.round((completed / clipAnalysis.length) * 100),
+              });
+            }
           }
+          const workers = Array.from(
+            { length: Math.min(WHISPER_CONCURRENCY, clipAnalysis.length) },
+            () => worker(),
+          );
+          await Promise.all(workers);
           return uploadToBlob(
             `transcripciones-multiclip/${projectId}.json`,
             Buffer.from(JSON.stringify(transcripciones)),
@@ -241,18 +323,22 @@ export const procesarMulticlipProyecto = inngest.createFunction(
         try {
         const sandbox = await createPreprocessSandbox();
         try {
-          // Descargar todos los clips
-          for (let i = 0; i < clipAnalysis.length; i++) {
-            const dl = await downloadInSandbox(
-              sandbox,
-              clipAnalysis[i].url,
-              `/tmp/clip_${i}.mp4`
+          // Descargar todos los clips en PARALELO (conc 4) — antes
+          // hacíamos un loop secuencial que para 16 clips de 60MB tomaba
+          // 4-8 min. La concurrencia baja eso a ~1-2 min sin saturar el
+          // sandbox.
+          const dl = await downloadInSandboxBatch(
+            sandbox,
+            clipAnalysis.map((c, i) => ({
+              url: c.url,
+              destPath: `/tmp/clip_${i}.mp4`,
+            })),
+            4,
+          );
+          if (dl.exitCode !== 0) {
+            throw new Error(
+              `Descarga de clips para concat falló: ${dl.stderr.slice(-500)}`,
             );
-            if (dl.exitCode !== 0) {
-              throw new Error(
-                `Descarga del clip ${i} para concat falló: ${dl.stderr.slice(-300)}`
-              );
-            }
           }
           const inputPaths = clipAnalysis.map((_, i) => `/tmp/clip_${i}.mp4`);
           // Canvas final = dimensiones del primer clip. Two-pass concat:
@@ -374,41 +460,65 @@ export const procesarMulticlipProyecto = inngest.createFunction(
           },
         });
 
-        // Descargar todos los videos originales para meterlos en el ZIP
-        // CapCut. Hacemos descarga SECUENCIAL (no Promise.all paralelo)
-        // para reportar progress claro por cada clip + bajar el pico de
-        // memoria (todos los buffers no estan en RAM al mismo tiempo
-        // mientras se descargan). Total puede tardar varios minutos para
-        // 6+ clips de 100+ MB.
-        const clipBuffers: Buffer[] = [];
-        for (let i = 0; i < clipsForExport.length; i++) {
-          const c = clipsForExport[i];
-          await updateProgress(projectId, {
-            step: 5,
-            label: "Generación XML / EDL / CapCut / SRT",
-            detail: `Descargando clip ${i + 1} de ${clipsForExport.length} (${c.name})`,
-            startedAt: new Date().toISOString(),
-            percent: Math.round((i / clipsForExport.length) * 80),
-          });
-          clipBuffers.push(await downloadFromBlob(c.url));
-        }
-
-        await updateProgress(projectId, {
-          step: 5,
-          label: "Generación XML / EDL / CapCut / SRT",
-          detail: "Empaquetando ZIP CapCut",
-          startedAt: new Date().toISOString(),
-          percent: 85,
-        });
+        // Armado del ZIP CapCut. Dos modos:
+        //
+        //  - incluirClipsEnZip = false (DEFAULT):
+        //      ZIP liviano (~50 KB). Solo trae draft_content + meta + un
+        //      README con URLs y dos scripts (sh/bat) que el usuario corre
+        //      para descargar los clips a la misma carpeta del ZIP. Esto
+        //      ahorra 5-15 min por pipeline porque NO hay que bajar +922MB
+        //      de Vercel Blob para empaquetarlos + subir el ZIP gigante.
+        //
+        //  - incluirClipsEnZip = true (legacy / power user):
+        //      Comportamiento historico. Descargamos los clips en
+        //      PARALELO con concurrencia limitada y los embebemos. ZIP
+        //      pesa los GB que pesen los clips.
+        const incluirClips = project.incluirClipsEnZip === true;
         const capcutZip = new JSZip();
         capcutZip.file("draft_content.json", draftJson);
         capcutZip.file("draft_meta_info.json", metaJson);
-        clipsForExport.forEach((c, idx) => {
-          capcutZip.file(c.localFilename, clipBuffers[idx]);
-        });
+
+        if (incluirClips) {
+          // Promise.all con concurrencia limitada (4 a la vez) — antes era
+          // secuencial y bajaba 922 MB en serial. 4 paralelos baja eso a
+          // ~25% del tiempo sin saturar la conexion.
+          await updateProgress(projectId, {
+            step: 5,
+            label: "Generación XML / EDL / CapCut / SRT",
+            detail: `Descargando ${clipsForExport.length} clips en paralelo (concurrencia 4)`,
+            startedAt: new Date().toISOString(),
+            percent: 30,
+          });
+          const clipBuffers = await downloadClipsParallel(clipsForExport, 4);
+          await updateProgress(projectId, {
+            step: 5,
+            label: "Generación XML / EDL / CapCut / SRT",
+            detail: "Empaquetando ZIP CapCut con clips embebidos",
+            startedAt: new Date().toISOString(),
+            percent: 75,
+          });
+          clipsForExport.forEach((c, idx) => {
+            capcutZip.file(c.localFilename, clipBuffers[idx]);
+          });
+        } else {
+          // ZIP liviano: README + scripts.
+          const bundleOpts = {
+            videoName: project.nombre,
+            clips: clipsForExport,
+          };
+          capcutZip.file("clips-README.md", generateClipsReadme(bundleOpts));
+          capcutZip.file(
+            "descargar-clips.sh",
+            generateClipsDownloadShellScript(bundleOpts),
+          );
+          capcutZip.file(
+            "descargar-clips.bat",
+            generateClipsDownloadBatchScript(bundleOpts),
+          );
+        }
         const capcutBuffer = await capcutZip.generateAsync({
           type: "nodebuffer",
-          compression: "STORE",
+          compression: incluirClips ? "STORE" : "DEFLATE",
         });
 
         // Generar SRT con la misma agrupacion (palabras-por-linea) que
@@ -544,4 +654,336 @@ export const procesarMulticlipProyecto = inngest.createFunction(
       throw err;
     }
   }
+);
+
+/**
+ * Pipeline de RE-RENDER: re-arma el video final con el estado ACTUAL del
+ * proyecto (plan_multiclip + transcripcion-final + subtitulos_override) sin
+ * volver a transcribir ni a llamar a Claude. Lo encola el endpoint
+ * /api/pipeline/[id]/rerender-output cuando el usuario aprieta "Re-render
+ * final" en el editor visual.
+ *
+ * Diferencias con `procesarMulticlipProyecto`:
+ *   - SIN preflight (asumimos que el proyecto ya corrio una vez OK)
+ *   - SIN analyze-clips (la metadata ya vive en DB)
+ *   - SIN transcribe-clips ni claude-multiclip (se reusa todo lo persistido)
+ *   - SI ffmpeg-multiclip-concat (snippets pueden haberse reordenado)
+ *   - SI generate-exports (regen XML/EDL/CapCut/SRT con plan + subs actuales)
+ *   - SI final-render OPCIONAL (solo si renderSubtitulos=true)
+ *
+ * Tipicamente termina en 2-5 min si renderSubtitulos=false; 10-15 min si
+ * renderSubtitulos=true. Esos rangos son los mismos del pipeline original
+ * menos el preflight + analyze + transcribe + Claude (que sumaban 30-90s).
+ */
+export const rerenderizarMulticlipFinal = inngest.createFunction(
+  {
+    id: "rerenderizar-multiclip-final",
+    retries: 1,
+    concurrency: { limit: 3 },
+  },
+  { event: "pipeline/multiclip-rerender" },
+  async ({ event, step }) => {
+    const { projectId } = event.data as { projectId: string };
+
+    try {
+      const project = await step.run("get-project", () => getProject(projectId));
+      const cliente = await step.run("get-cliente", () =>
+        getClienteProfile(project.clienteId),
+      );
+
+      if (!project.clips || project.clips.length === 0) {
+        throw new Error("El proyecto no tiene clips configurados");
+      }
+      if (!project.planMulticlip) {
+        throw new Error("El proyecto no tiene plan multiclip");
+      }
+      const plan = project.planMulticlip;
+
+      await step.run("mark-processing", () =>
+        updateProject(projectId, {
+          status: "processing",
+          errorMessage: null,
+        }),
+      );
+
+      // ── 1. Re-armar video_unido.mp4 con los snippets actuales ──
+      const videoUnidoUrl = await step.run("ffmpeg-rerender-concat", async () => {
+        await advanceToStep(
+          projectId,
+          0,
+          "Re-armado del video con FFmpeg",
+          `Recortando y uniendo ${plan.snippets.length} snippets`,
+        );
+        const stopHb = startHeartbeat(projectId);
+        try {
+          const sandbox = await createPreprocessSandbox();
+          try {
+            // Descarga paralela (conc 4) — mismo patron que analyze-clips
+            // y ffmpeg-multiclip-concat del pipeline original.
+            const dl = await downloadInSandboxBatch(
+              sandbox,
+              project.clips!.map((c, i) => ({
+                url: c.url,
+                destPath: `/tmp/clip_${i}.mp4`,
+              })),
+              4,
+            );
+            if (dl.exitCode !== 0) {
+              throw new Error(
+                `Descarga paralela de clips fallida: ${dl.stderr.slice(-500)}`,
+              );
+            }
+            const inputPaths = project.clips!.map((_, i) => `/tmp/clip_${i}.mp4`);
+            // Canvas = dimensiones del primer clip (igual que el pipeline
+            // original). Si los clips no tienen width/height/fps en DB
+            // (proyectos muy viejos), fallback a 1080x1920@30.
+            const first = project.clips![0];
+            const canvasWidth = first.width ?? 1080;
+            const canvasHeight = first.height ?? 1920;
+            const fps = first.fps ?? 30;
+            await runInSandbox(sandbox, `mkdir -p /tmp/segments`);
+            const cmds = buildFFmpegMulticlipCommands(
+              inputPaths,
+              "/tmp/video_unido.mp4",
+              plan.snippets,
+              "/tmp/segments",
+              "/tmp/concat-list.txt",
+              { canvasWidth, canvasHeight, fps },
+            );
+            await ejecutarFFmpegCommands(sandbox, cmds);
+            return await uploadFromSandboxToBlob(
+              sandbox,
+              "/tmp/video_unido.mp4",
+              `intermedio-multiclip/${projectId}.mp4`,
+            );
+          } finally {
+            await sandbox.stop();
+          }
+        } finally {
+          stopHb();
+        }
+      });
+
+      // ── 2. Regenerar XML / EDL / CapCut / SRT con plan + subs actuales ──
+      const exportResult = await step.run("rerender-exports", async () => {
+        await advanceToStep(
+          projectId,
+          1,
+          "Regeneracion XML / EDL / CapCut / SRT",
+          "Generando archivos editables con el plan actual",
+        );
+        const stopHb = startHeartbeat(projectId);
+        try {
+          const clipsForExport: ClipForExport[] = project.clips!.map((c, idx) => ({
+            index: idx,
+            name: c.name,
+            url: c.url,
+            metadata: {
+              width: c.width ?? 1920,
+              height: c.height ?? 1080,
+              fps: c.fps ?? 30,
+              duracion: c.duracion ?? 0,
+            },
+            localFilename: sanitizeClipFilename(
+              getLocalFilename(c.name, c.url),
+              idx,
+            ),
+          }));
+
+          // Cargar transcripcion ajustada (el editor ya la persistio al
+          // guardar antes de encolar el rerender).
+          const transcripcionUrl = publicBlobUrl(
+            `transcripciones-multiclip-final/${projectId}.json`,
+          );
+          let transcripcion: WordTimestamp[] = [];
+          try {
+            const buf = await downloadFromBlob(transcripcionUrl);
+            transcripcion = JSON.parse(buf.toString()) as WordTimestamp[];
+          } catch (err) {
+            console.warn("[rerender] no pude cargar transcripcion-final", err);
+          }
+
+          const subtitulosCfg = {
+            ...cliente.subtitulos,
+            ...(project.subtitulosOverride ?? {}),
+          };
+          const subtitulos = transcripcion.length > 0
+            ? { transcripcion, config: subtitulosCfg }
+            : undefined;
+
+          const { xml } = generarPremiereXMLMulticlip({
+            videoName: project.nombre,
+            clips: clipsForExport,
+            snippets: plan.snippets,
+            subtitulos,
+          });
+          const { edl } = generarDaVinciEDLMulticlip({
+            videoName: project.nombre,
+            clips: clipsForExport,
+            snippets: plan.snippets,
+          });
+          const { draftJson, metaJson } = generarCapCutDraftMulticlip({
+            videoName: project.nombre,
+            clips: clipsForExport,
+            snippets: plan.snippets,
+            subtitulos,
+          });
+
+          // ZIP CapCut: respeta incluirClipsEnZip del proyecto. Ver
+          // comentario equivalente en el pipeline original (generate-
+          // multiclip-exports) — misma logica de dos modos.
+          const incluirClipsRerender = project.incluirClipsEnZip === true;
+          const capcutZip = new JSZip();
+          capcutZip.file("draft_content.json", draftJson);
+          capcutZip.file("draft_meta_info.json", metaJson);
+
+          if (incluirClipsRerender) {
+            await updateProgress(projectId, {
+              step: 1,
+              label: "Regeneracion XML / EDL / CapCut / SRT",
+              detail: `Descargando ${clipsForExport.length} clips en paralelo (concurrencia 4)`,
+              startedAt: new Date().toISOString(),
+              percent: 30,
+            });
+            const clipBuffers = await downloadClipsParallel(clipsForExport, 4);
+            await updateProgress(projectId, {
+              step: 1,
+              label: "Regeneracion XML / EDL / CapCut / SRT",
+              detail: "Empaquetando ZIP CapCut con clips embebidos",
+              startedAt: new Date().toISOString(),
+              percent: 75,
+            });
+            clipsForExport.forEach((c, idx) => {
+              capcutZip.file(c.localFilename, clipBuffers[idx]);
+            });
+          } else {
+            const bundleOpts = {
+              videoName: project.nombre,
+              clips: clipsForExport,
+            };
+            capcutZip.file("clips-README.md", generateClipsReadme(bundleOpts));
+            capcutZip.file(
+              "descargar-clips.sh",
+              generateClipsDownloadShellScript(bundleOpts),
+            );
+            capcutZip.file(
+              "descargar-clips.bat",
+              generateClipsDownloadBatchScript(bundleOpts),
+            );
+          }
+          const capcutBuffer = await capcutZip.generateAsync({
+            type: "nodebuffer",
+            compression: incluirClipsRerender ? "STORE" : "DEFLATE",
+          });
+          const srt = generarSRT(
+            transcripcion,
+            subtitulosCfg.palabras_por_linea ?? 4,
+          );
+
+          const [xmlUrl, edlUrl, capcutUrl, srtUrl] = await Promise.all([
+            uploadToBlob(
+              `proyectos-xml/${projectId}.xml`,
+              Buffer.from(xml, "utf8"),
+              "application/xml",
+            ),
+            uploadToBlob(
+              `proyectos-edl/${projectId}.edl`,
+              Buffer.from(edl, "utf8"),
+              "text/plain",
+            ),
+            uploadToBlob(
+              `proyectos-capcut/${projectId}.zip`,
+              capcutBuffer,
+              "application/zip",
+            ),
+            uploadToBlob(
+              `proyectos-srt/${projectId}.srt`,
+              Buffer.from(srt, "utf8"),
+              "text/plain; charset=utf-8",
+            ),
+          ]);
+
+          return { xmlUrl, edlUrl, capcutUrl, srtUrl, transcripcion };
+        } finally {
+          stopHb();
+        }
+      });
+
+      // ── 3. (OPCIONAL) Render Remotion con subs quemados ──
+      // Solo si el proyecto se creo con renderSubtitulos=true. Si no, el
+      // output queda apuntando al video_unido sin subs (CapCut/Premiere
+      // los queman al exportar).
+      let finalOutputUrl = videoUnidoUrl;
+      if (project.renderSubtitulos) {
+        finalOutputUrl = await step.run("rerender-final-render", async () => {
+          await advanceToStep(
+            projectId,
+            2,
+            "Re-render MP4 con subtitulos quemados",
+            "Suele tardar 5-15 minutos segun la duracion del video",
+          );
+          const stopHb = startHeartbeat(projectId);
+          try {
+            const subtitulosEfectivos = {
+              ...cliente.subtitulos,
+              ...(project.subtitulosOverride ?? {}),
+              animacion:
+                plan.animacionOverride ??
+                project.subtitulosOverride?.animacion ??
+                cliente.subtitulos.animacion,
+            };
+            const { url } = await renderizarVideoFinal(projectId, {
+              videoUrl: videoUnidoUrl,
+              transcripcion: exportResult.transcripcion,
+              clienteProfile: {
+                ...cliente,
+                subtitulos: subtitulosEfectivos,
+              },
+              enfasisPalabras: plan.enfasisPalabras,
+            });
+            return url;
+          } finally {
+            stopHb();
+          }
+        });
+      }
+
+      const duracionFinal = calcularDuracionFinal(plan.snippets);
+
+      await step.run("mark-completed", async () => {
+        await advanceToStep(
+          projectId,
+          project.renderSubtitulos ? 3 : 2,
+          "Finalizado",
+          "Re-render completado",
+        );
+        return updateProject(projectId, {
+          status: "completed",
+          xmlUrl: exportResult.xmlUrl,
+          edlUrl: exportResult.edlUrl,
+          capcutUrl: exportResult.capcutUrl,
+          srtUrl: exportResult.srtUrl,
+          outputUrl: finalOutputUrl,
+          duracionSeg: duracionFinal,
+          keepSegmentsCount: plan.snippets.length,
+        });
+      });
+
+      return {
+        projectId,
+        outputUrl: finalOutputUrl,
+        xmlUrl: exportResult.xmlUrl,
+        edlUrl: exportResult.edlUrl,
+        capcutUrl: exportResult.capcutUrl,
+        srtUrl: exportResult.srtUrl,
+      };
+    } catch (err) {
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const msg = isNetworkError(err)
+        ? `Conexion con Vercel Sandbox interrumpida durante el re-render. Probable problema de red temporal — dale Reintentar en unos segundos. (${rawMsg.slice(0, 100)})`
+        : rawMsg;
+      await updateProject(projectId, { status: "error", errorMessage: msg });
+      throw err;
+    }
+  },
 );

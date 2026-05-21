@@ -3,7 +3,7 @@ import JSZip from "jszip";
 import { getProject, updateProject } from "@/lib/db";
 import { getClienteProfile } from "@/lib/clientes";
 import { requireAuth } from "@/lib/api-auth";
-import { downloadFromBlob, uploadToBlob } from "@/lib/blob";
+import { downloadFromBlob, publicBlobUrl, uploadToBlob } from "@/lib/blob";
 import {
   generarCapCutDraftMulticlip,
   generarDaVinciEDLMulticlip,
@@ -12,6 +12,11 @@ import {
 } from "@/lib/multiclip-exports";
 import { sanitizeClipFilename } from "@/lib/multiclip-utils";
 import { generarSRT } from "@/lib/srt";
+import {
+  generateClipsDownloadBatchScript,
+  generateClipsDownloadShellScript,
+  generateClipsReadme,
+} from "@/lib/clips-bundle";
 import { getLocalFilename } from "@/lib/premiere-xml";
 import type { WordTimestamp } from "@/types";
 
@@ -90,7 +95,9 @@ export async function POST(
 
   // Cargar transcripcion ajustada. Si no esta, los editables se generan sin
   // subtitulos (el usuario probablemente acaba de empezar).
-  const transcripcionUrl = `https://6bxtwiuhddelayzi.public.blob.vercel-storage.com/transcripciones-multiclip-final/${projectId}.json`;
+  const transcripcionUrl = publicBlobUrl(
+    `transcripciones-multiclip-final/${projectId}.json`,
+  );
   let transcripcion: WordTimestamp[] = [];
   try {
     const buf = await downloadFromBlob(transcripcionUrl);
@@ -123,19 +130,37 @@ export async function POST(
   });
   const srt = generarSRT(transcripcion, subtitulosCfg.palabras_por_linea ?? 4);
 
-  // Descargar los clips originales para el ZIP CapCut.
-  const clipBuffers = await Promise.all(
-    clipsForExport.map((c) => downloadFromBlob(c.url)),
-  );
+  // Respeta incluirClipsEnZip del proyecto. Default false: ZIP liviano con
+  // README + scripts. true (legacy): clips embebidos.
+  const incluirClips = project.incluirClipsEnZip === true;
   const capcutZip = new JSZip();
   capcutZip.file("draft_content.json", draftJson);
   capcutZip.file("draft_meta_info.json", metaJson);
-  clipsForExport.forEach((c, idx) => {
-    capcutZip.file(c.localFilename, clipBuffers[idx]);
-  });
+  if (incluirClips) {
+    const clipBuffers = await Promise.all(
+      clipsForExport.map((c) => downloadFromBlob(c.url)),
+    );
+    clipsForExport.forEach((c, idx) => {
+      capcutZip.file(c.localFilename, clipBuffers[idx]);
+    });
+  } else {
+    const bundleOpts = {
+      videoName: project.nombre,
+      clips: clipsForExport,
+    };
+    capcutZip.file("clips-README.md", generateClipsReadme(bundleOpts));
+    capcutZip.file(
+      "descargar-clips.sh",
+      generateClipsDownloadShellScript(bundleOpts),
+    );
+    capcutZip.file(
+      "descargar-clips.bat",
+      generateClipsDownloadBatchScript(bundleOpts),
+    );
+  }
   const capcutBuffer = await capcutZip.generateAsync({
     type: "nodebuffer",
-    compression: "STORE",
+    compression: incluirClips ? "STORE" : "DEFLATE",
   });
 
   const [xmlUrl, edlUrl, capcutUrl, srtUrl] = await Promise.all([

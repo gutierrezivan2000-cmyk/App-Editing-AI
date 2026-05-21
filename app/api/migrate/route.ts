@@ -136,6 +136,13 @@ export async function POST(req: Request) {
     await sql`ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS render_subtitulos BOOLEAN NOT NULL DEFAULT false`;
   });
 
+  // 0012: incluir_clips_en_zip flag. Si true, el ZIP CapCut embebe los
+  // clips originales adentro (puede pesar GB, +10-15min). Default false:
+  // el ZIP queda en KB con solo draft + README con URLs publicas.
+  await runMigration("0012_incluir_clips_en_zip", async () => {
+    await sql`ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS incluir_clips_en_zip BOOLEAN NOT NULL DEFAULT false`;
+  });
+
   return NextResponse.json({
     ok: failed.length === 0,
     applied,

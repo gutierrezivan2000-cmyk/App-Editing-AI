@@ -28,6 +28,7 @@ export async function POST(req: Request) {
       guion,
       subtitulosOverride,
       renderSubtitulos,
+      incluirClipsEnZip,
     } = await req.json();
 
     if (!clienteId || !footageUrl || !brief || !nombre) {
@@ -73,6 +74,8 @@ export async function POST(req: Request) {
       subtitulosOverride,
       renderSubtitulos:
         method === "multiclip" ? Boolean(renderSubtitulos) : undefined,
+      incluirClipsEnZip:
+        method === "multiclip" ? Boolean(incluirClipsEnZip) : undefined,
       userId: session.user.id,
     });
 

@@ -63,6 +63,7 @@ export default function NuevoProyectoPage() {
   >(undefined);
   const [renderMethod, setRenderMethod] = useState<RenderMethod>("multiclip");
   const [renderSubtitulos, setRenderSubtitulos] = useState(false);
+  const [incluirClipsEnZip, setIncluirClipsEnZip] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,6 +114,7 @@ export default function NuevoProyectoPage() {
         guion: isMulticlip && guion.trim() ? guion.trim() : undefined,
         subtitulosOverride,
         renderSubtitulos: isMulticlip ? renderSubtitulos : undefined,
+        incluirClipsEnZip: isMulticlip ? incluirClipsEnZip : undefined,
       };
 
       // Aborta si la red se queda esperando indefinidamente.
@@ -300,9 +302,39 @@ export default function NuevoProyectoPage() {
             </Section>
           )}
 
-          {/* ─── 7. Datos del proyecto ─── */}
+          {/* ─── 7. Embebido de clips en el ZIP CapCut (solo multiclip) ─── */}
+          {isMulticlip && (
+            <Section
+              number={7}
+              title="Empaquetar clips dentro del ZIP CapCut"
+              optional
+              description="Por defecto el ZIP queda en KB con solo el draft + un README listando las URLs públicas de los clips. Activá esto si querés un ZIP self-contained (puede pesar GB y agrega 10-15 min al pipeline por la descarga + empaquetado + upload)."
+            >
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 transition-colors hover:bg-gray-50">
+                <input
+                  type="checkbox"
+                  checked={incluirClipsEnZip}
+                  onChange={(e) => setIncluirClipsEnZip(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    Incluir los clips originales dentro del ZIP
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    Sin esto, el ZIP CapCut sólo trae el draft + meta + un
+                    README con URLs — descargás los clips a mano (o con el
+                    script incluido). Es mucho más rápido y suele ser lo
+                    deseado en producción.
+                  </p>
+                </div>
+              </label>
+            </Section>
+          )}
+
+          {/* ─── 8. Datos del proyecto ─── */}
           <Section
-            number={isMulticlip ? 7 : 5}
+            number={isMulticlip ? 8 : 5}
             title="Datos del proyecto"
             description="Identificación del proyecto y vínculo opcional con ClickUp."
           >

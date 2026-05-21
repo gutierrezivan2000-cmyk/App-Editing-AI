@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import JSZip from "jszip";
-import { downloadFromBlob, uploadToBlob } from "@/lib/blob";
+import { downloadFromBlob, publicBlobUrl, uploadToBlob } from "@/lib/blob";
 import { getProject, updateProject } from "@/lib/db";
 import { getClienteProfile } from "@/lib/clientes";
 import { requireAuth } from "@/lib/api-auth";
@@ -74,7 +74,9 @@ export async function POST(
   }));
 
   // Cargar transcripción ajustada que guardó el pipeline previo.
-  const transcripcionAjustadaUrl = `https://6bxtwiuhddelayzi.public.blob.vercel-storage.com/transcripciones-multiclip-final/${projectId}.json`;
+  const transcripcionAjustadaUrl = publicBlobUrl(
+    `transcripciones-multiclip-final/${projectId}.json`,
+  );
   let transcripcionAjustada: WordTimestamp[] = [];
   try {
     const buf = await downloadFromBlob(transcripcionAjustadaUrl);

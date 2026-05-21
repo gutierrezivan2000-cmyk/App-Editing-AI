@@ -2,6 +2,38 @@ import { put, del } from "@vercel/blob";
 import type { Sandbox } from "@vercel/sandbox";
 import { uploadSandboxFileToBlob } from "./sandbox";
 
+/**
+ * Base URL del bucket publico de Vercel Blob para este proyecto.
+ *
+ * Las funciones que SUBEN archivos (uploadToBlob) reciben la URL completa
+ * de Vercel automaticamente — no necesitan esta constante. Pero los lugares
+ * que LEEN un archivo por su KEY (sin tener el URL completo guardado en DB)
+ * la necesitan: el editor server-page y los endpoints regenerate / resync /
+ * rerender que cargan transcripciones-multiclip-final/{id}.json.
+ *
+ * El host por defecto corresponde a nuestro bucket actual; si rotamos a
+ * otro storage, basta con setear BLOB_PUBLIC_BASE_URL en .env.local y todo
+ * apunta al nuevo host sin tocar codigo.
+ */
+export const BLOB_PUBLIC_BASE =
+  process.env.BLOB_PUBLIC_BASE_URL?.replace(/\/$/, "") ??
+  "https://6bxtwiuhddelayzi.public.blob.vercel-storage.com";
+
+/**
+ * Construye el URL publico de un objeto Vercel Blob a partir de su key.
+ *
+ * Ejemplo:
+ *   publicBlobUrl(`transcripciones-multiclip-final/${id}.json`)
+ *   -> "https://6bxtwiuhddelayzi.public.blob.vercel-storage.com/transcripciones-multiclip-final/abc.json"
+ *
+ * Limpia slashes redundantes al principio del path para que sea seguro
+ * pasarle "foo" o "/foo".
+ */
+export function publicBlobUrl(path: string): string {
+  const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+  return `${BLOB_PUBLIC_BASE}/${cleanPath}`;
+}
+
 export async function uploadToBlob(
   key: string,
   buffer: Buffer,

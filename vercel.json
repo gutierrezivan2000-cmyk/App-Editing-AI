@@ -16,6 +16,12 @@
     "app/api/pipeline/[projectId]/regenerate-capcut/route.ts": {
       "maxDuration": 120
     },
+    "app/api/pipeline/[projectId]/rerender-output/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/pipeline/[projectId]/resync-transcripcion/route.ts": {
+      "maxDuration": 30
+    },
     "app/api/cortar/[id]/download/route.ts": {
       "maxDuration": 60
     },

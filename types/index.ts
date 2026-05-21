@@ -115,6 +115,13 @@ export interface Proyecto {
    * y los subtítulos viven en los archivos editables (CapCut/Premiere/SRT).
    */
   renderSubtitulos?: boolean;
+  /**
+   * Si true, el ZIP CapCut embebe los clips originales adentro — pesado,
+   * suma 10-15 min al pipeline en proyectos con varios clips. Default false:
+   * el ZIP queda en KB con solo draft + un README listando las URLs
+   * publicas para descarga manual.
+   */
+  incluirClipsEnZip?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

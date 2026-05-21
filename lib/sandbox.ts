@@ -325,6 +325,94 @@ export async function downloadInSandbox(
 }
 
 /**
+ * Descarga N archivos en paralelo dentro del sandbox. Usa `xargs -P` para
+ * limitar la concurrencia (default 4 — balance entre velocidad y memoria
+ * del sandbox: cada curl mantiene buffers internos, y 16 simultaneos
+ * pueden saturar el ancho de banda compartido).
+ *
+ * Antes haciamos un loop secuencial desde Node llamando downloadInSandbox
+ * por cada clip — round-trips innecesarios y red serializada. Esta version
+ * escribe un manifest TSV (url\tdest) al sandbox y lo procesa con xargs.
+ *
+ * Si CUALQUIER curl falla, xargs propaga exit code distinto de 0.
+ * Cada URL se valida primero contra SSRF/protocol igual que downloadInSandbox.
+ */
+export async function downloadInSandboxBatch(
+  sandbox: Sandbox,
+  items: { url: string; destPath: string }[],
+  concurrency: number = 4,
+): Promise<{ stderr: string; exitCode: number }> {
+  if (items.length === 0) return { stderr: "", exitCode: 0 };
+
+  // Validar cada URL antes de meterla al sandbox.
+  for (const it of items) {
+    let parsed: URL;
+    try {
+      parsed = new URL(it.url);
+    } catch {
+      throw new Error(`URL inválida: ${it.url.slice(0, 100)}`);
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error(`Protocolo no permitido: ${parsed.protocol}`);
+    }
+    const host = parsed.hostname.toLowerCase();
+    const blockedHosts = [
+      "localhost",
+      "127.0.0.1",
+      "0.0.0.0",
+      "169.254.169.254",
+      "metadata.google.internal",
+    ];
+    if (
+      blockedHosts.includes(host) ||
+      host.endsWith(".local") ||
+      host.endsWith(".internal") ||
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
+    ) {
+      throw new Error(`Host no permitido: ${host}`);
+    }
+  }
+
+  // Escribimos un manifest TSV al sandbox. TAB como separador porque URLs
+  // y paths no pueden contener TAB legitimamente (los espacios en URLs
+  // estarian %20-encoded). El downloader bash splittea por el primer TAB.
+  const manifest = items.map((it) => `${it.url}\t${it.destPath}`).join("\n") + "\n";
+  const manifestPath = `/tmp/dl-manifest-${Date.now()}.tsv`;
+  const scriptPath = `/tmp/dl-batch.sh`;
+
+  const downloaderScript =
+    `#!/bin/bash\n` +
+    `set -euo pipefail\n` +
+    // dl <pair>: pair = "url<TAB>dest"
+    `dl() {\n` +
+    `  local pair="$1"\n` +
+    `  local url="\${pair%%$(printf '\\t')*}"\n` +
+    `  local dest="\${pair#*$(printf '\\t')}"\n` +
+    `  curl -fsSL --max-time 600 -o "$dest" "$url"\n` +
+    `}\n` +
+    `export -f dl\n` +
+    // xargs lee el manifest, una linea por invocacion, P paralelos.
+    `xargs -a "$1" -d '\\n' -L 1 -P "$2" bash -c 'dl "$0"'\n`;
+
+  await sandbox.writeFiles([
+    {
+      path: manifestPath,
+      content: Buffer.from(manifest, "utf8"),
+    },
+    {
+      path: scriptPath,
+      content: Buffer.from(downloaderScript, "utf8"),
+    },
+  ]);
+
+  const cmd = `bash ${scriptPath} ${shSingleQuote(manifestPath)} ${concurrency}`;
+  const result = await runInSandbox(sandbox, cmd);
+  return { stderr: result.stderr, exitCode: result.exitCode };
+}
+
+/**
  * Sube un archivo desde dentro de un sandbox al Vercel Blob, sin pasar por
  * stdout (que rompe con archivos grandes — ver historia en lib/blob.ts).
  *

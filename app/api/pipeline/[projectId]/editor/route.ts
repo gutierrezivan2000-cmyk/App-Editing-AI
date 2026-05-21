@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getProject, updateProject } from "@/lib/db";
 import { getClienteProfile } from "@/lib/clientes";
 import { requireAuth } from "@/lib/api-auth";
-import { downloadFromBlob, uploadToBlob } from "@/lib/blob";
+import { downloadFromBlob, publicBlobUrl, uploadToBlob } from "@/lib/blob";
 import type {
   ClienteProfile,
   PlanMulticlip,
@@ -71,7 +71,9 @@ export async function GET(
 
   // La transcripcion ajustada vive en blob storage. Usamos la URL canonica
   // que el pipeline siempre escribe.
-  const transcripcionUrl = `https://6bxtwiuhddelayzi.public.blob.vercel-storage.com/transcripciones-multiclip-final/${projectId}.json`;
+  const transcripcionUrl = publicBlobUrl(
+    `transcripciones-multiclip-final/${projectId}.json`,
+  );
   let transcripcion: WordTimestamp[] = [];
   try {
     const buf = await downloadFromBlob(transcripcionUrl);

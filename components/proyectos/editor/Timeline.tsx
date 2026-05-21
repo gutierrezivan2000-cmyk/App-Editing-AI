@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import type { PlayerRef } from "@remotion/player";
+import { WaveformBar } from "./WaveformBar";
 import type {
   ClipMultiSource,
   SnippetPlan,
@@ -27,9 +28,21 @@ interface TimelineProps {
   onWordClick?: (idx: number) => void;
   /** Índice de la palabra actualmente seleccionada para edición. */
   selectedWordIdx?: number;
+  /**
+   * URL del video unido — del que sale el waveform de audio del track
+   * "Audio". Si es undefined, el track no se renderiza.
+   */
+  audioUrl?: string;
+  /**
+   * Indica que el waveform corresponde al video unido ANTES de las
+   * ediciones actuales (snippets reordenados/recortados). El track
+   * se atenua y muestra un chip de aviso.
+   */
+  audioStale?: boolean;
 }
 
 const TRACK_HEIGHT = 56;
+const AUDIO_TRACK_HEIGHT = 48;
 const RULER_HEIGHT = 26;
 const TRACK_GAP = 6;
 const LABEL_GUTTER = 64;
@@ -58,7 +71,10 @@ export function Timeline({
   transcripcion,
   onWordClick,
   selectedWordIdx,
+  audioUrl,
+  audioStale = false,
 }: TimelineProps) {
+  const showAudio = Boolean(audioUrl);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const cursorRef = useRef<HTMLDivElement | null>(null);
@@ -147,9 +163,34 @@ export function Timeline({
     snipIdx: number;
     side: "start" | "end";
   } | null>(null);
+  // Throttle de emisiones a 80ms (~12/seg) — mismo patron que TrimBar del
+  // SnippetEditor. Evita saturar React con setState en cada mousemove
+  // (~120Hz en monitores modernos) sin perder fluidez perceptible en el
+  // preview Remotion + waveform.
+  const lastEmitRef = useRef(0);
+  const pendingEmitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestUpdateRef = useRef<{ snipIdx: number; start?: number; end?: number } | null>(null);
 
   useEffect(() => {
     if (!trimDrag) return;
+    const THROTTLE_MS = 80;
+
+    const flush = () => {
+      const u = latestUpdateRef.current;
+      if (!u) return;
+      onSnippetsChange((prev) =>
+        prev.map((s, i) => {
+          if (i !== u.snipIdx) return s;
+          return {
+            ...s,
+            ...(u.start !== undefined ? { start: u.start } : {}),
+            ...(u.end !== undefined ? { end: u.end } : {}),
+          };
+        }),
+      );
+      lastEmitRef.current = Date.now();
+    };
+
     const move = (e: MouseEvent) => {
       const content = contentRef.current;
       if (!content) return;
@@ -159,31 +200,65 @@ export function Timeline({
       const finalStart = cumulativeStarts[trimDrag.snipIdx];
       const snip = snippets[trimDrag.snipIdx];
       if (!snip) return;
+      // `delta` = cuanto desplazaste respecto a la posicion donde EMPEZABA
+      // el snippet en el timeline final. Tiene signo: negativo si lo arrastraste
+      // hacia la izquierda, positivo hacia la derecha.
       const delta = targetTime - finalStart;
       const clipDur = clips[snip.clipIndex]?.duracion ?? snip.end;
-      onSnippetsChange((prev) =>
-        prev.map((s, i) => {
-          if (i !== trimDrag.snipIdx) return s;
-          if (trimDrag.side === "start") {
-            // delta es el cambio en el start del snippet relativo al clip.
-            const newStart = Math.max(0, Math.min(s.start + delta, s.end - 0.1));
-            return { ...s, start: newStart };
-          } else {
-            const newEnd = Math.max(
-              s.start + 0.1,
-              Math.min(s.end + delta - (s.end - s.start), clipDur),
-            );
-            return { ...s, end: newEnd };
-          }
-        }),
-      );
+
+      if (trimDrag.side === "start") {
+        // Mover el handle izquierdo: el nuevo start dentro del clip de
+        // origen es el viejo start + delta. Clampeo: no menos que 0, no
+        // mas que end-0.1 para mantener duracion minima.
+        const newStart = Math.max(0, Math.min(snip.start + delta, snip.end - 0.1));
+        latestUpdateRef.current = { snipIdx: trimDrag.snipIdx, start: newStart };
+      } else {
+        // Mover el handle derecho: la nueva DURACION del snippet es `delta`
+        // (porque finalStart no se mueve). Entonces newEnd = start + delta.
+        // Clampeo: no menos que start+0.1, no mas que la duracion del clip.
+        const newEnd = Math.max(
+          snip.start + 0.1,
+          Math.min(snip.start + delta, clipDur),
+        );
+        latestUpdateRef.current = { snipIdx: trimDrag.snipIdx, end: newEnd };
+      }
+
+      // Throttle de la emision: si ya pasaron >= THROTTLE_MS desde el ultimo
+      // emit, emit ahora; si no, schedula un emit al final del intervalo.
+      const now = Date.now();
+      if (now - lastEmitRef.current >= THROTTLE_MS) {
+        if (pendingEmitRef.current) {
+          clearTimeout(pendingEmitRef.current);
+          pendingEmitRef.current = null;
+        }
+        flush();
+      } else if (!pendingEmitRef.current) {
+        const wait = THROTTLE_MS - (now - lastEmitRef.current);
+        pendingEmitRef.current = setTimeout(() => {
+          pendingEmitRef.current = null;
+          flush();
+        }, wait);
+      }
     };
-    const up = () => setTrimDrag(null);
+    const up = () => {
+      if (pendingEmitRef.current) {
+        clearTimeout(pendingEmitRef.current);
+        pendingEmitRef.current = null;
+      }
+      // Flush final sin throttle para alinear el state al ultimo pixel.
+      flush();
+      latestUpdateRef.current = null;
+      setTrimDrag(null);
+    };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
     return () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
+      if (pendingEmitRef.current) {
+        clearTimeout(pendingEmitRef.current);
+        pendingEmitRef.current = null;
+      }
     };
   }, [trimDrag, pxPerSec, cumulativeStarts, snippets, clips, onSnippetsChange]);
 
@@ -272,6 +347,17 @@ export function Timeline({
               Subs
             </span>
           </div>
+          {showAudio && (
+            <div
+              style={{ height: AUDIO_TRACK_HEIGHT, marginTop: TRACK_GAP }}
+              className="flex items-center gap-1.5 px-2"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(232,121,249,0.6)]" />
+              <span className="select-none text-[9px] font-semibold uppercase tracking-wider text-zinc-500">
+                Audio
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Área scrollable con el contenido del timeline */}
@@ -284,7 +370,11 @@ export function Timeline({
             className="relative"
             style={{
               width: totalWidth,
-              height: RULER_HEIGHT + TRACK_HEIGHT * 2 + TRACK_GAP * 3,
+              height:
+                RULER_HEIGHT +
+                TRACK_HEIGHT * 2 +
+                TRACK_GAP * 3 +
+                (showAudio ? AUDIO_TRACK_HEIGHT + TRACK_GAP : 0),
             }}
           >
             {/* Ruler */}
@@ -459,13 +549,47 @@ export function Timeline({
               })}
             </div>
 
+            {/* Track Audio (waveform) */}
+            {showAudio && audioUrl && (
+              <div
+                onClick={handleTrackClick}
+                className="absolute left-0 right-0 cursor-pointer"
+                style={{
+                  top:
+                    RULER_HEIGHT + TRACK_HEIGHT * 2 + TRACK_GAP * 3,
+                  height: AUDIO_TRACK_HEIGHT,
+                  width: totalWidth,
+                }}
+              >
+                {/* Wrap propio para no propagar clicks del waveform al
+                    handleTrackClick: WaveSurfer ya hace su propio seek via
+                    el evento `interaction`. */}
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute inset-0"
+                >
+                  <WaveformBar
+                    videoUrl={audioUrl}
+                    playerRef={playerRef}
+                    fps={fps}
+                    height={AUDIO_TRACK_HEIGHT}
+                    stale={audioStale}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Cursor del playhead */}
             <div
               ref={cursorRef}
               className="pointer-events-none absolute top-0 z-10"
               style={{
                 left: 0,
-                height: RULER_HEIGHT + TRACK_HEIGHT * 2 + TRACK_GAP * 3,
+                height:
+                  RULER_HEIGHT +
+                  TRACK_HEIGHT * 2 +
+                  TRACK_GAP * 3 +
+                  (showAudio ? AUDIO_TRACK_HEIGHT + TRACK_GAP : 0),
                 width: 2,
                 background:
                   "linear-gradient(to bottom, #f43f5e 0%, #ef4444 100%)",

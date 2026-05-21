@@ -263,6 +263,8 @@ export function SnippetEditor({
   );
 }
 
+const LIVE_THROTTLE_MS = 80;
+
 /**
  * Barra horizontal con dos handles arrastrables. El ancho de la barra
  * representa la duracion COMPLETA del clip de origen. La zona indigo
@@ -270,13 +272,16 @@ export function SnippetEditor({
  *
  * Mouse drag handlers:
  *   - mousedown en handle -> empieza track de movimiento
- *   - mousemove (en window) -> updatea start o end segun cual handle
- *   - mouseup -> commit final
+ *   - mousemove (en window) -> updatea start o end segun cual handle Y
+ *     emite onChange THROTTLED a ~80ms para que el preview Remotion vea
+ *     el recorte en vivo. El throttle evita saturar React con setState
+ *     en cada frame del mouse (~120Hz en monitores modernos).
+ *   - mouseup -> emite onChange final con el valor exacto (sin throttle)
+ *     para asegurar que el state termine alineado al ultimo pixel del drag.
  *
- * Usamos refs locales para que el drag sea fluido (no re-render por
- * frame de mouse). Solo committeamos al onChange en mouseup, o de forma
- * "throttled" cada 100ms para que el editor de Remotion vea cambios
- * en vivo (preview reacciona).
+ * Usamos refs internas para el valor "vivo" del drag (no causa re-render
+ * de este componente), pero igual mantenemos localStart/localEnd como
+ * state para el rendering visual de los handles.
  */
 function TrimBar({
   start,
@@ -291,15 +296,23 @@ function TrimBar({
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState<"start" | "end" | null>(null);
-  // Estado local para el drag — evita re-render del padre en cada move.
+  // Estado local para el drag — manda los pixeles donde dibujamos los handles.
   const [localStart, setLocalStart] = useState(start);
   const [localEnd, setLocalEnd] = useState(end);
+  // Refs paralelas al state local para acceder al valor mas reciente desde
+  // los listeners de mouse sin tener que reinyectar el effect en cada update.
+  const localStartRef = useRef(start);
+  const localEndRef = useRef(end);
+  const lastEmitRef = useRef(0);
+  const pendingEmitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sincronizar el estado local cuando el padre cambia (ej. edicion numerica).
   useEffect(() => {
     if (!dragging) {
       setLocalStart(start);
       setLocalEnd(end);
+      localStartRef.current = start;
+      localEndRef.current = end;
     }
   }, [start, end, dragging]);
 
@@ -319,16 +332,48 @@ function TrimBar({
     const handleMove = (e: MouseEvent) => {
       const t = calcTimeFromX(e.clientX);
       if (dragging === "start") {
-        setLocalStart(Math.max(0, Math.min(t, localEnd - 0.1)));
+        const next = Math.max(0, Math.min(t, localEndRef.current - 0.1));
+        localStartRef.current = next;
+        setLocalStart(next);
       } else {
-        setLocalEnd(
-          Math.max(localStart + 0.1, Math.min(t, clipDuracion || t)),
+        const next = Math.max(
+          localStartRef.current + 0.1,
+          Math.min(t, clipDuracion || t),
         );
+        localEndRef.current = next;
+        setLocalEnd(next);
+      }
+      // Throttle: emitir onChange como mucho una vez cada LIVE_THROTTLE_MS
+      // (~12 veces por segundo). El padre actualiza el preview Remotion y
+      // el waveform — esa cadencia se siente fluida sin ahogar React.
+      const now = Date.now();
+      if (now - lastEmitRef.current >= LIVE_THROTTLE_MS) {
+        lastEmitRef.current = now;
+        if (pendingEmitRef.current) {
+          clearTimeout(pendingEmitRef.current);
+          pendingEmitRef.current = null;
+        }
+        onChange(localStartRef.current, localEndRef.current);
+      } else if (!pendingEmitRef.current) {
+        // Si rechazamos un emit por throttle, schedulamos uno para el
+        // final del intervalo para no perder el ultimo valor.
+        const wait = LIVE_THROTTLE_MS - (now - lastEmitRef.current);
+        pendingEmitRef.current = setTimeout(() => {
+          pendingEmitRef.current = null;
+          lastEmitRef.current = Date.now();
+          onChange(localStartRef.current, localEndRef.current);
+        }, wait);
       }
     };
     const handleUp = () => {
+      if (pendingEmitRef.current) {
+        clearTimeout(pendingEmitRef.current);
+        pendingEmitRef.current = null;
+      }
       setDragging(null);
-      onChange(localStart, localEnd);
+      // Emit final SIN throttle — el valor del state queda alineado al
+      // ultimo pixel del drag, exactamente donde el usuario solto el mouse.
+      onChange(localStartRef.current, localEndRef.current);
     };
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
@@ -336,7 +381,17 @@ function TrimBar({
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
-  }, [dragging, calcTimeFromX, onChange, localStart, localEnd, clipDuracion]);
+    // Dependencias minimas: el listener accede a los valores vivos via
+    // refs, asi que NO los listamos aca. El effect solo se re-inyecta
+    // cuando empieza/termina un drag o cambia el clipDuracion.
+  }, [dragging, calcTimeFromX, onChange, clipDuracion]);
+
+  // Cleanup del setTimeout al desmontar.
+  useEffect(() => {
+    return () => {
+      if (pendingEmitRef.current) clearTimeout(pendingEmitRef.current);
+    };
+  }, []);
 
   if (clipDuracion <= 0) return null;
 

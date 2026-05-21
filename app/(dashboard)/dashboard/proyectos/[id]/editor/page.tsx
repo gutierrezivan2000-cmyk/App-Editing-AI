@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { EditorClient } from "@/components/proyectos/editor/EditorClient";
 import { getProject } from "@/lib/db";
 import { getClienteProfile } from "@/lib/clientes";
-import { downloadFromBlob } from "@/lib/blob";
+import { downloadFromBlob, publicBlobUrl } from "@/lib/blob";
 import { auth } from "@/auth";
 import type { WordTimestamp } from "@/types";
 
@@ -46,7 +46,9 @@ export default async function EditorPage({
   const cliente = await getClienteProfile(proyecto.clienteId);
 
   // Cargar transcripcion ajustada al timeline final.
-  const transcripcionUrl = `https://6bxtwiuhddelayzi.public.blob.vercel-storage.com/transcripciones-multiclip-final/${id}.json`;
+  const transcripcionUrl = publicBlobUrl(
+    `transcripciones-multiclip-final/${id}.json`,
+  );
   let transcripcion: WordTimestamp[] = [];
   try {
     const buf = await downloadFromBlob(transcripcionUrl);

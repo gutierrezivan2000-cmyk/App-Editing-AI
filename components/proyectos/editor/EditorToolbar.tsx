@@ -11,10 +11,20 @@ interface EditorToolbarProps {
   regenerating: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  /** Indica drift de snippets vs el video_unido original. */
+  audioStale: boolean;
+  /** Cargando la nueva transcripcion derivada desde clips originales. */
+  resyncing: boolean;
+  /** Re-renderizando el output (video_unido + exports + MP4 quemado). */
+  rerendering: boolean;
+  /** Si false, no mostramos el boton resync (no hay drift). */
+  canResync: boolean;
   onUndo: () => void;
   onRedo: () => void;
   onSave: () => void;
   onRegenerate: () => void;
+  onResyncTranscripcion: () => void;
+  onRerenderOutput: () => void;
 }
 
 /**
@@ -30,10 +40,16 @@ export function EditorToolbar({
   regenerating,
   canUndo,
   canRedo,
+  audioStale,
+  resyncing,
+  rerendering,
+  canResync,
   onUndo,
   onRedo,
   onSave,
   onRegenerate,
+  onResyncTranscripcion,
+  onRerenderOutput,
 }: EditorToolbarProps) {
   return (
     <header className="flex h-12 flex-shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900 px-3">
@@ -75,7 +91,7 @@ export function EditorToolbar({
         />
       </div>
 
-      {/* DERECHA — save + regenerate */}
+      {/* DERECHA — save + regenerate + (resync) + rerender */}
       <div className="flex items-center gap-2">
         <button
           onClick={onSave}
@@ -88,14 +104,42 @@ export function EditorToolbar({
         </button>
         <button
           onClick={onRegenerate}
-          disabled={regenerating}
-          className="group inline-flex h-8 items-center gap-1.5 rounded-md bg-gradient-to-b from-indigo-500 to-indigo-600 px-3 text-xs font-semibold text-white shadow-sm shadow-indigo-500/30 transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-indigo-500/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-          title="Guardar y regenerar XML / EDL / CapCut / SRT con los cambios"
+          disabled={regenerating || rerendering}
+          className="group inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800 px-3 text-xs font-medium text-zinc-200 transition-all hover:border-zinc-600 hover:bg-zinc-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+          title="Guardar y regenerar XML / EDL / CapCut / SRT con los cambios (sin tocar el video)"
         >
           <RegenerateIcon
             className={`h-3.5 w-3.5 transition-transform duration-500 ${regenerating ? "animate-spin" : "group-hover:rotate-180"}`}
           />
           {regenerating ? "Regenerando…" : "Regenerar editables"}
+        </button>
+        {/* Re-sincronizar transcripcion: solo aparece si hay drift de
+            snippets vs el video_unido original. */}
+        {canResync && (
+          <button
+            onClick={onResyncTranscripcion}
+            disabled={resyncing || rerendering || saving}
+            className="group inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-medium text-amber-200 transition-all hover:border-amber-400/60 hover:bg-amber-500/15 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            title={audioStale
+              ? "Reordenaste snippets — re-deriva los timestamps de subtitulos desde las transcripciones originales. Atencion: pierde edits manuales de texto."
+              : "Re-deriva los timestamps de subtitulos desde las transcripciones originales"}
+          >
+            <SyncIcon
+              className={`h-3.5 w-3.5 ${resyncing ? "animate-spin" : ""}`}
+            />
+            {resyncing ? "Re-sincronizando…" : "Re-sincronizar subs"}
+          </button>
+        )}
+        <button
+          onClick={onRerenderOutput}
+          disabled={rerendering || regenerating || saving}
+          className="group inline-flex h-8 items-center gap-1.5 rounded-md bg-gradient-to-b from-indigo-500 to-indigo-600 px-3 text-xs font-semibold text-white shadow-sm shadow-indigo-500/30 transition-all hover:from-indigo-400 hover:to-indigo-500 hover:shadow-indigo-500/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+          title="Re-armar el video final con los cambios — encola un job que regenera video_unido, exports y (si aplica) MP4 con subs quemados"
+        >
+          <FilmIcon
+            className={`h-3.5 w-3.5 ${rerendering ? "animate-pulse" : ""}`}
+          />
+          {rerendering ? "Encolando…" : "Re-render final"}
         </button>
       </div>
     </header>
@@ -223,6 +267,22 @@ function CheckMicroIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+function SyncIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+    </svg>
+  );
+}
+function FilmIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M7 3v18M17 3v18M3 7.5h4M3 12h18M3 16.5h4M17 7.5h4M17 16.5h4" />
     </svg>
   );
 }

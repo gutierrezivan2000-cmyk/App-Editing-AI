@@ -13,6 +13,14 @@ interface WaveformBarProps {
   fps: number;
   /** Color de la onda — usamos el indigo de la marca. */
   color?: string;
+  /** Altura del wavesurfer en px (default 56). */
+  height?: number;
+  /**
+   * Si true, el waveform se renderiza atenuado y muestra un chip que avisa
+   * que los tiempos NO coinciden con el video actual (porque el usuario
+   * reordeno snippets despues de la ultima regeneracion).
+   */
+  stale?: boolean;
 }
 
 /**
@@ -32,7 +40,9 @@ export function WaveformBar({
   videoUrl,
   playerRef,
   fps,
-  color = "#6366f1",
+  color = "#818cf8",
+  height = 56,
+  stale = false,
 }: WaveformBarProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
@@ -49,10 +59,11 @@ export function WaveformBar({
     let cancelled = false;
     const ws = WaveSurfer.create({
       container: containerRef.current,
-      height: 56,
-      waveColor: "#c7d2fe", // indigo-200 (fondo)
+      height,
+      // Paleta dark: onda apagada + progreso indigo brillante.
+      waveColor: "#3f3f46", // zinc-700
       progressColor: color,
-      cursorColor: color,
+      cursorColor: "#f43f5e", // rose-500 — match con el playhead del Timeline
       cursorWidth: 2,
       barWidth: 2,
       barGap: 1,
@@ -115,16 +126,29 @@ export function WaveformBar({
   }, [playerRef, fps]);
 
   return (
-    <div className="relative w-full rounded-lg bg-gray-100 p-2">
+    <div
+      className={[
+        "relative w-full overflow-hidden rounded-sm bg-zinc-950/60 ring-1 ring-inset ring-zinc-800/80 transition-opacity",
+        stale ? "opacity-50" : "opacity-100",
+      ].join(" ")}
+    >
       <div ref={containerRef} className="w-full" />
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-100/80 text-xs text-gray-500">
+      {loading && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/70 text-[11px] text-zinc-500">
           <span className="animate-pulse">Decodificando audio…</span>
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-red-50 text-xs text-red-700">
+        <div className="absolute inset-0 flex items-center justify-center bg-red-950/40 text-[11px] text-red-300">
           {error}
+        </div>
+      )}
+      {stale && !loading && !error && (
+        <div className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300 ring-1 ring-inset ring-amber-500/30">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+            Desincronizado · regenerá
+          </span>
         </div>
       )}
     </div>

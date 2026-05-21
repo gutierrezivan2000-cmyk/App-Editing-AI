@@ -15,6 +15,7 @@ import { RemotionPreview } from "./RemotionPreview";
 import { SubtitleEditor } from "./SubtitleEditor";
 import { EnfasisEditor } from "./EnfasisEditor";
 import { SnippetEditor } from "./SnippetEditor";
+import { StyleEditor } from "./StyleEditor";
 import { Timeline } from "./Timeline";
 import { SubtitleOverlay } from "./SubtitleOverlay";
 import { ToastStack, type ToastMessage } from "./Toast";
@@ -43,7 +44,7 @@ interface EditorClientProps {
   transcripcionInicial: WordTimestamp[];
 }
 
-type Tab = "subtitulos" | "enfasis" | "snippets";
+type Tab = "subtitulos" | "enfasis" | "snippets" | "estilo";
 
 /**
  * Estado unificado del editor — todo lo que vive en el undo/redo stack
@@ -54,6 +55,8 @@ interface EditorState {
   transcripcion: WordTimestamp[];
   snippets: SnippetPlan[];
   enfasisPalabras: string[];
+  /** null = sin override; usar 100% el del cliente. */
+  subtitulosOverride: SubtitulosOverride | null;
 }
 
 export function EditorClient({
@@ -69,12 +72,13 @@ export function EditorClient({
       transcripcion: transcripcionInicial,
       snippets: project.planMulticlip.snippets,
       enfasisPalabras: project.planMulticlip.enfasisPalabras,
+      subtitulosOverride: project.subtitulosOverride,
     },
     debounceMs: 800,
     maxHistorySize: 50,
   });
   const { state, setState: setEditorState, undo, redo, commit, canUndo, canRedo, pastSize, futureSize } = history;
-  const { transcripcion, snippets, enfasisPalabras } = state;
+  const { transcripcion, snippets, enfasisPalabras, subtitulosOverride } = state;
 
   const [tab, setTab] = useState<Tab>("subtitulos");
   const [selectedWordIdx, setSelectedWordIdx] = useState<number | undefined>(
@@ -82,10 +86,35 @@ export function EditorClient({
   );
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [resyncing, setResyncing] = useState(false);
+  const [rerendering, setRerendering] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
-  // dirty = hay cambios en past que el server no conoce.
-  const [savedSnapshotSize, setSavedSnapshotSize] = useState(0);
-  const dirty = pastSize !== savedSnapshotSize || futureSize > 0;
+  // dirty = el estado actual NO coincide con lo que tiene el server.
+  //
+  // Antes usabamos `pastSize !== savedSnapshotSize || futureSize > 0`, lo
+  // que daba un falso positivo: si el usuario hacia Save -> Edit -> Undo,
+  // el state actual volvia a coincidir con lo guardado pero `futureSize=1`
+  // dejaba dirty=true y el boton Save quedaba habilitado sin razon.
+  //
+  // Ahora comparamos por identidad referencial cada slice del state contra
+  // el snapshot que se guardo. setEditorState siempre genera un objeto
+  // nuevo con spread, pero los slices que NO cambian conservan su identidad
+  // — undo a un estado previo recupera las MISMAS referencias que estaban
+  // al momento de ese commit, asi que la comparacion shallow detecta
+  // correctamente "estoy en el mismo estado que cuando guarde".
+  const [savedSnapshot, setSavedSnapshot] = useState<EditorState | null>(null);
+  const dirty = useMemo(() => {
+    if (!savedSnapshot) {
+      // Nunca guardamos: dirty si hay historial (osea, hubo edits).
+      return pastSize > 0 || futureSize > 0;
+    }
+    return (
+      state.transcripcion !== savedSnapshot.transcripcion ||
+      state.snippets !== savedSnapshot.snippets ||
+      state.enfasisPalabras !== savedSnapshot.enfasisPalabras ||
+      state.subtitulosOverride !== savedSnapshot.subtitulosOverride
+    );
+  }, [state, savedSnapshot, pastSize, futureSize]);
   const playerRef = useRef<PlayerRef | null>(null);
 
   // ─── Toast notifications ───
@@ -104,10 +133,33 @@ export function EditorClient({
   const subtitulosCfg = useMemo(
     () => ({
       ...cliente.subtitulos,
-      ...(project.subtitulosOverride ?? {}),
+      ...(subtitulosOverride ?? {}),
     }),
-    [cliente.subtitulos, project.subtitulosOverride],
+    [cliente.subtitulos, subtitulosOverride],
   );
+
+  // Snippets originales que dieron lugar al video_unido.mp4 actual. El
+  // waveform corresponde a ESE audio — si el usuario reordena, recorta o
+  // borra snippets, los tiempos del waveform dejan de coincidir con lo que
+  // reproduce el preview en modo live. Detectamos drift comparando contra
+  // un snapshot inicial inmutable.
+  const initialSnippetsRef = useRef(project.planMulticlip.snippets);
+  const audioStale = useMemo(() => {
+    const initial = initialSnippetsRef.current;
+    if (snippets.length !== initial.length) return true;
+    for (let i = 0; i < snippets.length; i++) {
+      const a = snippets[i];
+      const b = initial[i];
+      if (
+        a.clipIndex !== b.clipIndex ||
+        Math.abs(a.start - b.start) > 0.01 ||
+        Math.abs(a.end - b.end) > 0.01
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, [snippets]);
 
   const fps = cliente.exportacion.fps ?? 30;
 
@@ -146,6 +198,12 @@ export function EditorClient({
     },
     [setEditorState],
   );
+  const updateSubtitulosOverride = useCallback(
+    (next: SubtitulosOverride | null) => {
+      setEditorState((prev) => ({ ...prev, subtitulosOverride: next }));
+    },
+    [setEditorState],
+  );
   const patchWord = useCallback(
     (idx: number, patch: Partial<WordTimestamp>) => {
       updateTranscripcion((prev) =>
@@ -174,13 +232,21 @@ export function EditorClient({
         snippets,
         enfasisPalabras,
       };
+      // PATCH acepta subtitulosOverride opcional. Mandamos siempre el valor
+      // efectivo del estado — `null` se serializa pero updateProject hace
+      // COALESCE, asi que para "borrar el override" hace falta mandar
+      // explicitamente un objeto vacio. Por simplicidad, si null lo omitimos.
+      const body: Record<string, unknown> = {
+        transcripcion,
+        planMulticlip: planActualizado,
+      };
+      if (subtitulosOverride !== null) {
+        body.subtitulosOverride = subtitulosOverride;
+      }
       const res = await fetch(`/api/pipeline/${project.id}/editor`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcripcion,
-          planMulticlip: planActualizado,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -188,7 +254,13 @@ export function EditorClient({
         return;
       }
       setLastSavedAt(new Date());
-      setSavedSnapshotSize(pastSize);
+      // Guardamos un snapshot del state que acabamos de persistir. Como
+      // useEditorHistory hace setStateInternal(curr -> curr) en commit, el
+      // `state` que vemos aca tiene la misma identidad de slices que va a
+      // tener el `lastCommittedRef` interno. Cualquier undo posterior que
+      // pase por ese commit va a recuperar las mismas referencias y
+      // dirty va a evaluar a false correctamente.
+      setSavedSnapshot(state);
       pushToast("success", "Cambios guardados");
     } finally {
       setSaving(false);
@@ -200,8 +272,9 @@ export function EditorClient({
     project.planMulticlip,
     snippets,
     enfasisPalabras,
+    subtitulosOverride,
     transcripcion,
-    pastSize,
+    state,
     pushToast,
   ]);
 
@@ -233,6 +306,109 @@ export function EditorClient({
       setRegenerating(false);
     }
   }, [regenerating, dirty, handleSave, project.id, pushToast]);
+
+  const handleResyncTranscripcion = useCallback(async () => {
+    if (resyncing || rerendering) return;
+    // Confirm: la operacion DESCARTA las edits manuales de texto en la
+    // transcripcion. Necesitamos asegurarnos de que el usuario lo entiende.
+    const confirmed =
+      typeof window !== "undefined" &&
+      window.confirm(
+        "Re-sincronizar va a regenerar la transcripcion desde los clips originales para que coincida con el nuevo orden de snippets.\n\n" +
+          "ADVERTENCIA: las edits manuales de texto que hayas hecho en la transcripcion se van a perder.\n\n" +
+          "¿Continuar?",
+      );
+    if (!confirmed) return;
+    setResyncing(true);
+    try {
+      const res = await fetch(
+        `/api/pipeline/${project.id}/resync-transcripcion`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        pushToast(
+          "error",
+          `No se pudo re-sincronizar: ${err.error ?? res.statusText}`,
+        );
+        return;
+      }
+      const data = (await res.json()) as {
+        ok: boolean;
+        transcripcion: WordTimestamp[];
+        palabras: number;
+      };
+      updateTranscripcion(data.transcripcion);
+      pushToast(
+        "success",
+        `Transcripcion re-sincronizada (${data.palabras} palabras). Guarda los cambios cuando estes listo.`,
+        3500,
+      );
+    } finally {
+      setResyncing(false);
+    }
+  }, [resyncing, rerendering, project.id, pushToast, updateTranscripcion]);
+
+  const handleRerenderOutput = useCallback(async () => {
+    if (rerendering || regenerating) return;
+    // Avisamos del caveat si hay drift de snippets. Si no hay drift, la
+    // confirmacion es mas suave (solo "esto encola un job de N min").
+    const driftWarning = audioStale
+      ? "ATENCION: detectamos que reordenaste snippets desde la ultima vez que se armo el video. Los subtitulos pueden quedar mal sincronizados.\n\n" +
+        "Recomendado: cancela y dale primero a 'Re-sincronizar subs'.\n\n"
+      : "";
+    const renderNote = project.renderSubtitulos
+      ? "Incluye render del MP4 con subtitulos quemados (5-15 min). "
+      : "Solo regenera el video_unido y los editables (2-5 min). ";
+    const confirmed =
+      typeof window !== "undefined" &&
+      window.confirm(
+        driftWarning +
+          renderNote +
+          "Vas a volver al detalle del proyecto para ver el progreso.\n\n" +
+          "¿Encolar el re-render?",
+      );
+    if (!confirmed) return;
+
+    setRerendering(true);
+    try {
+      if (dirty) {
+        await handleSave();
+      }
+      const res = await fetch(`/api/pipeline/${project.id}/rerender-output`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        pushToast(
+          "error",
+          `No se pudo encolar el re-render: ${err.error ?? res.statusText}`,
+        );
+        return;
+      }
+      pushToast(
+        "info",
+        "Re-render encolado. Te llevo al detalle del proyecto para ver el progreso.",
+        3000,
+      );
+      // Pequena pausa para que el toast se vea antes de la navegacion.
+      setTimeout(() => {
+        router.push(`/dashboard/proyectos/${project.id}`);
+      }, 600);
+    } finally {
+      setRerendering(false);
+    }
+  }, [
+    rerendering,
+    regenerating,
+    audioStale,
+    project.renderSubtitulos,
+    project.id,
+    dirty,
+    handleSave,
+    pushToast,
+    router,
+  ]);
 
   const handleSeekTo = useCallback(
     (sec: number) => {
@@ -316,10 +492,16 @@ export function EditorClient({
         regenerating={regenerating}
         canUndo={canUndo}
         canRedo={canRedo}
+        audioStale={audioStale}
+        resyncing={resyncing}
+        rerendering={rerendering}
+        canResync={audioStale}
         onUndo={undo}
         onRedo={redo}
         onSave={handleSave}
         onRegenerate={handleRegenerate}
+        onResyncTranscripcion={handleResyncTranscripcion}
+        onRerenderOutput={handleRerenderOutput}
       />
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -396,6 +578,12 @@ export function EditorClient({
                 label="Snippets"
                 count={snippets.length}
               />
+              <TabButton
+                active={tab === "estilo"}
+                onClick={() => setTab("estilo")}
+                label="Estilo"
+                dot={subtitulosOverride !== null}
+              />
             </div>
             <div className="flex-1 overflow-y-auto scrollbar-dark">
               {tab === "subtitulos" && (
@@ -423,13 +611,22 @@ export function EditorClient({
                   onSeek={handleSeekTo}
                 />
               )}
+              {tab === "estilo" && (
+                <StyleEditor
+                  value={subtitulosOverride}
+                  onChange={updateSubtitulosOverride}
+                  cliente={cliente}
+                />
+              )}
             </div>
           </aside>
         </div>
 
         <div
           className="flex-shrink-0 border-t border-zinc-800 bg-zinc-900"
-          style={{ height: 220 }}
+          // 280px = toolbar(~32) + ruler(26) + 2*track(112) + 3*gap(18) +
+          //        audio_track(48) + gap(6) + margenes(~38)
+          style={{ height: 280 }}
         >
           <Timeline
             playerRef={playerRef}
@@ -440,6 +637,8 @@ export function EditorClient({
             transcripcion={transcripcion}
             onWordClick={handleSelectWord}
             selectedWordIdx={selectedWordIdx}
+            audioUrl={project.outputUrl || undefined}
+            audioStale={audioStale}
           />
         </div>
 
@@ -464,11 +663,14 @@ function TabButton({
   onClick,
   label,
   count,
+  dot,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
   count?: number;
+  /** Punto indicador (estado activo/dirty) en lugar de contador numerico. */
+  dot?: boolean;
 }) {
   return (
     <button
@@ -492,6 +694,17 @@ function TabButton({
         >
           {count}
         </span>
+      )}
+      {dot && (
+        <span
+          className={[
+            "ml-1.5 inline-block h-1.5 w-1.5 rounded-full",
+            active
+              ? "bg-indigo-400 shadow-[0_0_6px_rgba(99,102,241,0.7)]"
+              : "bg-indigo-500/60",
+          ].join(" ")}
+          aria-hidden
+        />
       )}
       {active && (
         <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-gradient-to-r from-indigo-500 via-indigo-400 to-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" />

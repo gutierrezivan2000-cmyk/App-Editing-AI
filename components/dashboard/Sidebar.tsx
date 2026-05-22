@@ -14,6 +14,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Inicio", Icon: HomeIcon },
   { href: "/dashboard/proyectos", label: "Proyectos", Icon: FilmIcon },
+  { href: "/dashboard/montaje", label: "Montaje automático", Icon: WandIcon },
   { href: "/dashboard/cortar", label: "Cortar silencios", Icon: ScissorsIcon },
   { href: "/dashboard/clientes", label: "Clientes", Icon: UsersIcon },
 ];
@@ -229,6 +230,31 @@ function CloseIcon({ className }: { className?: string }) {
     >
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
+function WandIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 4V2" />
+      <path d="M15 16v-2" />
+      <path d="M8 9h2" />
+      <path d="M20 9h2" />
+      <path d="M17.8 11.8 19 13" />
+      <path d="M15 9h.01" />
+      <path d="M17.8 6.2 19 5" />
+      <path d="m3 21 9-9" />
+      <path d="M12.2 6.2 11 5" />
     </svg>
   );
 }

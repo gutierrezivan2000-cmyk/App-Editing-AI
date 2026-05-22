@@ -7,6 +7,7 @@ import {
   procesarMulticlipProyecto,
   rerenderizarMulticlipFinal,
 } from "@/inngest/functions/proyecto-multiclip";
+import { procesarMontaje } from "@/inngest/functions/montaje";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -16,5 +17,6 @@ export const { GET, POST, PUT } = serve({
     procesarCortesProyecto,
     procesarMulticlipProyecto,
     rerenderizarMulticlipFinal,
+    procesarMontaje,
   ],
 });

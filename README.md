@@ -9,6 +9,11 @@ Sistema autónomo de edición de video con IA para agencias. Cargás
 
 Todo en ~5-12 minutos según las opciones, sin intervención humana en el camino.
 
+> 📖 **Documento técnico-funcional detallado**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+> — 20 secciones explicando qué resuelve la app, cómo funciona cada
+> capa del stack, decisiones arquitectónicas, performance real,
+> trade-offs y roadmap.
+
 ---
 
 ## ¿Qué hace exactamente?

@@ -55,8 +55,6 @@ export function generarCapCutDraft(opts: {
   const draftId = randomUUID();
   const videoMaterialId = randomUUID();
   const videoTrackId = randomUUID();
-  const audioMaterialId = randomUUID();
-  const audioTrackId = randomUUID();
   const speedId = randomUUID();
   const soundChannelId = randomUUID();
   const vocalSeparationId = randomUUID();
@@ -67,8 +65,12 @@ export function generarCapCutDraft(opts: {
   // Bare filename — CapCut finds it in the draft folder by name.
   const sourcePath = localFilename;
 
+  // Solo un track de video — el material de video tiene has_audio:true asi
+  // que el audio del .mp4 ya se reproduce. Antes generabamos un track de
+  // audio adicional con material "extract_music" referenciando el MISMO
+  // archivo, lo cual reproducia el audio DOS veces. Si el usuario necesita
+  // editar audio aparte, puede usar "Separate audio" dentro de CapCut.
   const videoSegments: Record<string, unknown>[] = [];
-  const audioSegments: Record<string, unknown>[] = [];
 
   let targetPos = 0;
   segments.forEach((seg, idx) => {
@@ -77,7 +79,7 @@ export function generarCapCutDraft(opts: {
     const targetStart = targetPos;
     targetPos += srcDur;
 
-    const baseSegment = {
+    videoSegments.push({
       cartoon: false,
       clip: {
         alpha: 1.0,
@@ -115,18 +117,8 @@ export function generarCapCutDraft(opts: {
       uniform_scale: { on: true, value: 1.0 },
       visible: true,
       volume: 1.0,
-    };
-
-    videoSegments.push({
-      ...baseSegment,
       id: randomUUID(),
       material_id: videoMaterialId,
-    });
-
-    audioSegments.push({
-      ...baseSegment,
-      id: randomUUID(),
-      material_id: audioMaterialId,
     });
   });
 
@@ -314,15 +306,6 @@ export function generarCapCutDraft(opts: {
       segments: videoSegments,
       type: "video",
     },
-    {
-      attribute: 0,
-      flag: 0,
-      id: audioTrackId,
-      is_default_name: true,
-      name: "",
-      segments: audioSegments,
-      type: "audio",
-    },
   ];
 
   if (textTrackId && textSegments.length > 0) {
@@ -394,40 +377,7 @@ export function generarCapCutDraft(opts: {
       audio_effects: [],
       audio_fades: [],
       audio_track_indexes: [],
-      audios: [
-        {
-          app_id: 0,
-          category_id: "",
-          category_name: "local",
-          check_flag: 1,
-          duration: sourceDurationUs,
-          effect_id: "",
-          formula_id: "",
-          id: audioMaterialId,
-          intensifies_path: "",
-          local_material_id: "",
-          music_id: audioMaterialId,
-          name: localFilename,
-          path: sourcePath,
-          query: "",
-          request_id: "",
-          resource_id: "",
-          search_id: "",
-          source_from: "",
-          source_platform: 0,
-          team_id: "",
-          text_id: "",
-          tone_category_id: "",
-          tone_category_name: "",
-          tone_effect_id: "",
-          tone_effect_name: "",
-          tone_speaker: "",
-          tone_type: "",
-          type: "extract_music",
-          video_id: videoMaterialId,
-          wave_points: [],
-        },
-      ],
+      audios: [],
       beats: [],
       canvases: [
         {

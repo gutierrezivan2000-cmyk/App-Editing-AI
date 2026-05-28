@@ -68,12 +68,23 @@ export const MulticlipComposition = ({
     ),
   }));
 
-  // Calcular posiciones acumuladas en frames para cada snippet.
-  let cumulativeFrames = 0;
+  // Calcular posiciones acumuladas en SEGUNDOS (float) y derivar
+  // start/end en frames con Math.round del cumulativo. Esto garantiza
+  // que `endFrame[i] === startFrame[i+1]` exacto — sin micro-gaps
+  // entre snippets ni drift al final del timeline.
+  //
+  // Bug original: hacíamos `durFrames = round((end-start)*fps)` y
+  // `cumulativeFrames += durFrames`. Cada snippet acumulaba 0.5 frames
+  // de error, y para 16 snippets eso eran ~8 frames (medio segundo a
+  // 30fps) de gap al final donde ningun Sequence renderizaba — al
+  // hacer click ahí desde el timeline, el preview quedaba negro.
+  let cumulativeSec = 0;
   const sequences = snippets.map((s, i) => {
-    const startFrameInTimeline = cumulativeFrames;
-    const durFrames = Math.max(1, Math.round((s.end - s.start) * fps));
-    cumulativeFrames += durFrames;
+    const startFrameInTimeline = Math.round(cumulativeSec * fps);
+    const dur = s.end - s.start;
+    cumulativeSec += dur;
+    const endFrameInTimeline = Math.round(cumulativeSec * fps);
+    const durFrames = Math.max(1, endFrameInTimeline - startFrameInTimeline);
     return {
       key: i,
       from: startFrameInTimeline,

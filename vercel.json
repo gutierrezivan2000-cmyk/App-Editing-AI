@@ -19,6 +19,9 @@
     "app/api/pipeline/[projectId]/rerender-output/route.ts": {
       "maxDuration": 30
     },
+    "app/api/pipeline/[projectId]/replan/route.ts": {
+      "maxDuration": 30
+    },
     "app/api/pipeline/[projectId]/resync-transcripcion/route.ts": {
       "maxDuration": 30
     },

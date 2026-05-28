@@ -987,3 +987,150 @@ export const rerenderizarMulticlipFinal = inngest.createFunction(
     }
   },
 );
+
+/**
+ * Pipeline de RE-PLANEO: re-ejecuta Claude para regenerar el
+ * plan_multiclip a partir de las transcripciones per-clip que ya viven
+ * en blob storage. NO re-corre analyze-clips ni transcribe-clips (ahorra
+ * 5-10 min en proyectos con clips ya procesados).
+ *
+ * Encolado por POST /api/pipeline/[id]/replan. Util cuando:
+ *   - Se mejoro el prompt de Claude o la lógica del planning, y queremos
+ *     validar contra un proyecto existente sin re-procesar todo.
+ *   - El plan original no respetaba el guion, dejaba silencios, repetia
+ *     ideas, etc.
+ *
+ * Al terminar, dispara el evento `pipeline/multiclip-rerender` para que
+ * el rerender existing arme el video_unido + exports + opcional MP4
+ * quemado con el plan nuevo.
+ */
+export const replanificarMulticlipFinal = inngest.createFunction(
+  {
+    id: "replanificar-multiclip-final",
+    retries: 1,
+    concurrency: { limit: 3 },
+  },
+  { event: "pipeline/multiclip-replan" },
+  async ({ event, step }) => {
+    const { projectId } = event.data as { projectId: string };
+
+    try {
+      const project = await step.run("get-project", () => getProject(projectId));
+      const cliente = await step.run("get-cliente", () =>
+        getClienteProfile(project.clienteId),
+      );
+
+      if (!project.clips || project.clips.length === 0) {
+        throw new Error("El proyecto no tiene clips configurados");
+      }
+
+      await step.run("mark-processing", () =>
+        updateProject(projectId, {
+          status: "processing",
+          errorMessage: null,
+        }),
+      );
+
+      // 1. Cargar transcripciones per-clip del blob (las que Whisper
+      //    genero en la corrida original).
+      const perClipTranscripciones = await step.run(
+        "load-per-clip-transcripcions",
+        async () => {
+          await advanceToStep(
+            projectId,
+            0,
+            "Re-planeo: cargando transcripciones",
+            `Trayendo transcripciones de ${project.clips!.length} clips`,
+          );
+          const url = publicBlobUrl(
+            `transcripciones-multiclip/${projectId}.json`,
+          );
+          let perClip: WordTimestamp[][];
+          try {
+            const buf = await downloadFromBlob(url);
+            perClip = JSON.parse(buf.toString()) as WordTimestamp[][];
+          } catch (err) {
+            throw new Error(
+              "No se pudieron cargar las transcripciones per-clip — " +
+                "el proyecto probablemente fue creado antes de esta feature " +
+                "y no las tiene en blob. Ejecuta el pipeline completo con " +
+                "'Reintentar' en lugar de re-planear. " +
+                (err instanceof Error ? err.message : String(err)),
+            );
+          }
+          if (!Array.isArray(perClip)) {
+            throw new Error(
+              "Formato invalido en transcripciones-multiclip blob",
+            );
+          }
+          return perClip;
+        },
+      );
+
+      // 2. Re-ejecutar Claude con el prompt actual y las transcripciones.
+      const plan = await step.run("claude-replan", async () => {
+        await advanceToStep(
+          projectId,
+          1,
+          "Re-planeo: Claude analiza transcripciones",
+          "Decidiendo orden, cortes y enfasis con el plan actualizado",
+        );
+        const inputClips: MulticlipInputClip[] = project.clips!.map((c, i) => ({
+          index: i,
+          name: c.name,
+          duracion: c.duracion ?? 0,
+          transcripcion: perClipTranscripciones[i] ?? [],
+        }));
+        return planificarMulticlipConClaude(
+          inputClips,
+          project.brief,
+          project.guion ?? null,
+          cliente.subtitulos.animacion,
+        );
+      });
+
+      // 3. Re-derivar la transcripcion ajustada al timeline final con el
+      //    plan nuevo, y persistir ambos.
+      await step.run("persist-new-plan-and-transcripcion", async () => {
+        await advanceToStep(
+          projectId,
+          2,
+          "Re-planeo: ajustando transcripcion al nuevo plan",
+          "Recalculando timestamps segun los snippets reordenados",
+        );
+        const transcripcionFinal = unirTranscripcionesMulticlip(
+          perClipTranscripciones,
+          plan.snippets,
+        );
+        await uploadToBlob(
+          `transcripciones-multiclip-final/${projectId}.json`,
+          Buffer.from(JSON.stringify(transcripcionFinal)),
+          "application/json",
+        );
+        await updateProject(projectId, { planMulticlip: plan });
+      });
+
+      // 4. Disparar el rerender — arma video_unido + exports +
+      //    opcional MP4 quemado con el plan nuevo. Lo encolamos como
+      //    evento separado para que cada fn tenga una responsabilidad
+      //    clara y el progreso se vea en steps.
+      await step.sendEvent("trigger-rerender", {
+        name: "pipeline/multiclip-rerender",
+        data: { projectId },
+      });
+
+      return {
+        projectId,
+        replanned: true,
+        snippets: plan.snippets.length,
+      };
+    } catch (err) {
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const msg = isNetworkError(err)
+        ? `Conexion con Claude/Blob interrumpida durante el re-plan. Reintentar en unos segundos. (${rawMsg.slice(0, 100)})`
+        : rawMsg;
+      await updateProject(projectId, { status: "error", errorMessage: msg });
+      throw err;
+    }
+  },
+);

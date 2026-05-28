@@ -493,7 +493,6 @@ export function generarCapCutDraftMulticlip(opts: {
 
   const draftId = randomUUID();
   const videoTrackId = randomUUID();
-  const audioTrackId = randomUUID();
   const speedId = randomUUID();
   const soundChannelId = randomUUID();
   const vocalSeparationId = randomUUID();
@@ -501,16 +500,20 @@ export function generarCapCutDraftMulticlip(opts: {
 
   const nowUs = Date.now() * 1000;
 
-  // Per-clip material ids (one video material + one extracted-audio material per clip)
+  // Per-clip material id — UN solo material por clip (type "video" con
+  // has_audio: true). Antes generabamos un material "extract_music"
+  // adicional + un track de audio separado por snippet, lo que hacia
+  // que CapCut reproduzca el audio DOS veces (una desde el video y
+  // otra desde el extract_music del MISMO archivo). Eliminamos el
+  // track de audio separado para evitar el doble audio; si el usuario
+  // necesita editar el audio independientemente, puede usar "Separate
+  // audio" dentro de CapCut.
   const videoMatIdByClip = new Map<number, string>();
-  const audioMatIdByClip = new Map<number, string>();
   clips.forEach((c) => {
     videoMatIdByClip.set(c.index, randomUUID());
-    audioMatIdByClip.set(c.index, randomUUID());
   });
 
   const videoSegments: Record<string, unknown>[] = [];
-  const audioSegments: Record<string, unknown>[] = [];
 
   let targetPos = 0;
   snippets.forEach((s, idx) => {
@@ -519,7 +522,7 @@ export function generarCapCutDraftMulticlip(opts: {
     const targetStart = targetPos;
     targetPos += srcDur;
 
-    const baseSegment = {
+    videoSegments.push({
       cartoon: false,
       clip: {
         alpha: 1.0,
@@ -554,17 +557,8 @@ export function generarCapCutDraftMulticlip(opts: {
       uniform_scale: { on: true, value: 1.0 },
       visible: true,
       volume: 1.0,
-    };
-
-    videoSegments.push({
-      ...baseSegment,
       id: randomUUID(),
       material_id: videoMatIdByClip.get(s.clipIndex),
-    });
-    audioSegments.push({
-      ...baseSegment,
-      id: randomUUID(),
-      material_id: audioMatIdByClip.get(s.clipIndex),
     });
   });
 
@@ -790,42 +784,11 @@ export function generarCapCutDraftMulticlip(opts: {
     width: c.metadata.width,
   }));
 
-  const audioMaterials = clips.map((c) => ({
-    app_id: 0,
-    category_id: "",
-    category_name: "local",
-    check_flag: 1,
-    duration: secToMicro(c.metadata.duracion),
-    effect_id: "",
-    formula_id: "",
-    id: audioMatIdByClip.get(c.index),
-    intensifies_path: "",
-    local_material_id: audioMatIdByClip.get(c.index),
-    music_id: audioMatIdByClip.get(c.index),
-    name: c.localFilename,
-    path: c.localFilename,
-    query: "",
-    request_id: "",
-    resource_id: "",
-    search_id: "",
-    source_from: "",
-    source_platform: 0,
-    team_id: "",
-    text_id: "",
-    tone_category_id: "",
-    tone_category_name: "",
-    tone_effect_id: "",
-    tone_effect_name: "",
-    tone_speaker: "",
-    tone_type: "",
-    type: "extract_music",
-    video_id: videoMatIdByClip.get(c.index),
-    wave_points: [],
-  }));
+  // audioMaterials eliminado a proposito — ver comentario arriba sobre
+  // el doble audio.
 
   const tracks: Record<string, unknown>[] = [
     { attribute: 0, flag: 0, id: videoTrackId, is_default_name: true, name: "", segments: videoSegments, type: "video" },
-    { attribute: 0, flag: 0, id: audioTrackId, is_default_name: true, name: "", segments: audioSegments, type: "audio" },
   ];
   if (textTrackId && textSegments.length > 0) {
     tracks.push({
@@ -885,7 +848,7 @@ export function generarCapCutDraftMulticlip(opts: {
       audio_effects: [],
       audio_fades: [],
       audio_track_indexes: [],
-      audios: audioMaterials,
+      audios: [],
       beats: [],
       canvases: [
         {

@@ -76,19 +76,28 @@ export const RemotionPreview = forwardRef<PlayerRef, RemotionPreviewProps>(
 
     const fps = clienteProfile.exportacion.fps ?? 30;
 
-    // Duracion total:
-    //   - En modo live: suma de duraciones de snippets (lo que va a sonar)
-    //   - En modo video pre-rendered: hasta el final de la transcripcion
-    const totalDurationSec = useMemo(() => {
-      if (useLiveMode && snippets) {
-        const sum = snippets.reduce((acc, s) => acc + (s.end - s.start), 0);
-        return Math.max(1, sum);
+    // Duracion en frames del Player.
+    //
+    // En modo LIVE: tenemos que coincidir EXACTO con la composicion
+    // MulticlipComposition (que ahora deriva cada start/end frame con
+    // Math.round del cumulativo en segundos). Si no coincidimos, el
+    // ultimo frame del Player cae despues del ultimo Sequence y el
+    // preview queda negro al hacer seek al final del timeline.
+    //
+    // En modo pre-rendered: hasta el final de la transcripcion.
+    const durationInFrames = useMemo(() => {
+      if (useLiveMode && snippets && snippets.length > 0) {
+        // Replicamos EXACTAMENTE el calculo del MulticlipComposition:
+        // sum de end frames acumulados con Math.round del segundo
+        // cumulativo. Esto da el ultimo endFrame, que es la duracion
+        // que vamos a alimentar al Player.
+        let cumulativeSec = 0;
+        for (const s of snippets) cumulativeSec += s.end - s.start;
+        return Math.max(1, Math.round(cumulativeSec * fps));
       }
       const last = transcripcion[transcripcion.length - 1];
-      return Math.max(1, last?.end ?? 10);
-    }, [useLiveMode, snippets, transcripcion]);
-
-    const durationInFrames = Math.max(1, Math.ceil(totalDurationSec * fps));
+      return Math.max(1, Math.ceil((last?.end ?? 10) * fps));
+    }, [useLiveMode, snippets, transcripcion, fps]);
 
     // inputProps separados por modo — cada Player tipa estrictamente
     // sus props y no podemos compartirlos.

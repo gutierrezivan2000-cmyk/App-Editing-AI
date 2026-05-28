@@ -11,27 +11,39 @@ import { uploadSandboxFileToBlob } from "./sandbox";
  * la necesitan: el editor server-page y los endpoints regenerate / resync /
  * rerender que cargan transcripciones-multiclip-final/{id}.json.
  *
- * El host por defecto corresponde a nuestro bucket actual; si rotamos a
- * otro storage, basta con setear BLOB_PUBLIC_BASE_URL en .env.local y todo
- * apunta al nuevo host sin tocar codigo.
+ * Se lee de la env var BLOB_PUBLIC_BASE_URL (formato:
+ * "https://<tenant-id>.public.blob.vercel-storage.com"). Es obligatoria —
+ * sin ella, los endpoints que construyen URLs publicas no tienen como
+ * formarlas. La env var NO es un secreto (el tenant-id aparece en cualquier
+ * URL publica de un blob de tu cuenta) pero se mantiene fuera del repo
+ * para no exponerlo gratis.
  */
-export const BLOB_PUBLIC_BASE =
-  process.env.BLOB_PUBLIC_BASE_URL?.replace(/\/$/, "") ??
-  "https://6bxtwiuhddelayzi.public.blob.vercel-storage.com";
+function readBlobPublicBase(): string {
+  const raw = process.env.BLOB_PUBLIC_BASE_URL;
+  if (!raw) {
+    throw new Error(
+      "BLOB_PUBLIC_BASE_URL no esta configurada. Setea la var en .env.local " +
+        "con el formato 'https://<tenant-id>.public.blob.vercel-storage.com'. " +
+        "Encontras el tenant-id en cualquier URL publica de un blob ya subido.",
+    );
+  }
+  return raw.replace(/\/$/, "");
+}
 
 /**
  * Construye el URL publico de un objeto Vercel Blob a partir de su key.
  *
  * Ejemplo:
  *   publicBlobUrl(`transcripciones-multiclip-final/${id}.json`)
- *   -> "https://6bxtwiuhddelayzi.public.blob.vercel-storage.com/transcripciones-multiclip-final/abc.json"
+ *   -> "https://<tenant-id>.public.blob.vercel-storage.com/transcripciones-multiclip-final/abc.json"
  *
  * Limpia slashes redundantes al principio del path para que sea seguro
- * pasarle "foo" o "/foo".
+ * pasarle "foo" o "/foo". Lanza si BLOB_PUBLIC_BASE_URL no esta seteada.
  */
 export function publicBlobUrl(path: string): string {
+  const base = readBlobPublicBase();
   const cleanPath = path.startsWith("/") ? path.slice(1) : path;
-  return `${BLOB_PUBLIC_BASE}/${cleanPath}`;
+  return `${base}/${cleanPath}`;
 }
 
 export async function uploadToBlob(
